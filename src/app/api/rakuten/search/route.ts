@@ -3,13 +3,16 @@ import { NextRequest, NextResponse } from "next/server";
 /**
  * 楽天市場 商品検索API プロキシ
  *
- * 動作確認済みリクエスト形式:
+ * 動作確認済みリクエスト形式（2022年6月以降の新APIゲートウェイ）:
  *   GET https://openapi.rakuten.co.jp/ichibams/api/IchibaItem/Search/20220601
  *     ?format=json
  *     &keyword=...
- *     &accessKey=pk_xxx
- *     &applicationId=UUID
- *   Header: Referer: <許可されたWebサイト>
+ *     &hits=10
+ *     &accessKey=pk_xxx        ← 必須（アクセスキー）
+ *     &applicationId=UUID      ← 必須（UUID形式のアプリID）
+ *   Headers:
+ *     Referer: https://otoquest-uiov.vercel.app/  ← 許可されたWebサイトと一致
+ *     Origin:  https://otoquest-uiov.vercel.app   ← 必須（Refererと同じドメイン）
  */
 
 const RAKUTEN_API =
@@ -18,10 +21,9 @@ const RAKUTEN_API =
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
 
-  const keyword     = searchParams.get("keyword") || "";
-  const hits        = Math.min(Number(searchParams.get("hits") || "10"), 30);
-  const sort        = searchParams.get("sort") || "+itemPrice";
-  const accessKey   = searchParams.get("accessKey")   || process.env.RAKUTEN_ACCESS_KEY || "";
+  const keyword       = searchParams.get("keyword") || "";
+  const hits          = Math.min(Number(searchParams.get("hits") || "10"), 30);
+  const accessKey     = searchParams.get("accessKey") || process.env.RAKUTEN_ACCESS_KEY || "";
   const applicationId = searchParams.get("appId") || searchParams.get("applicationId") || process.env.RAKUTEN_APP_ID || "";
 
   if (!accessKey) {
@@ -30,21 +32,28 @@ export async function GET(request: NextRequest) {
       { status: 400 }
     );
   }
+  if (!applicationId) {
+    return NextResponse.json(
+      { error: "RAKUTEN_APP_ID (applicationId) が設定されていません。" },
+      { status: 400 }
+    );
+  }
   if (!keyword.trim()) {
     return NextResponse.json({ error: "keyword が必要です。" }, { status: 400 });
   }
 
-  // Referer: 楽天Developers「許可されたWebサイト」と一致させる
+  // Referer: 楽天Developers「許可されたWebサイト」と一致させる（必須）
   const referer = process.env.RAKUTEN_REFERER || "https://otoquest-uiov.vercel.app/";
+  const origin  = new URL(referer).origin;
 
+  // ※ 新APIゲートウェイは sort パラメータ非対応のため除外
   const params = new URLSearchParams({
-    format: "json",
+    format:        "json",
     keyword,
-    hits:     String(hits),
-    sort,
+    hits:          String(hits),
     accessKey,
+    applicationId, // UUID形式（2022年6月以降のアプリに発行されるID）
   });
-  if (applicationId) params.set("applicationId", applicationId);
 
   const url = `${RAKUTEN_API}?${params.toString()}`;
 
@@ -52,10 +61,10 @@ export async function GET(request: NextRequest) {
     const res = await fetch(url, {
       headers: {
         "User-Agent": "Mozilla/5.0 (OtoQuest/1.0)",
-        "Referer":    referer,
-        "Origin":     new URL(referer).origin,
+        "Referer":    referer, // 許可されたWebサイトと完全一致が必要
+        "Origin":     origin,  // Refererと同じドメインのOriginも必須
       },
-      signal: AbortSignal.timeout(12000), // 12秒タイムアウト
+      signal: AbortSignal.timeout(12000),
     });
 
     const text = await res.text();
@@ -77,7 +86,7 @@ export async function GET(request: NextRequest) {
           error:  `楽天API エラー ${res.status}` + (msg ? `: ${msg}` : ""),
           detail: typeof parsed === "object" ? JSON.stringify(parsed, null, 2) : text,
           hint: msg === "REQUEST_CONTEXT_BODY_HTTP_REFERRER_MISSING"
-            ? `楽天Developers → アプリ編集 → 許可されたWebサイト に '${new URL(referer).hostname}' を設定してください。`
+            ? `楽天Developers → アプリ編集 → 許可されたWebサイト に '${new URL(referer).hostname}' を登録してください。`
             : undefined,
         },
         { status: res.status }
@@ -88,22 +97,29 @@ export async function GET(request: NextRequest) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const items: any[] = raw.Items ?? [];
 
+    // 新APIゲートウェイのレスポンス構造に対応（Item ネストあり / なし）
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const normalize = (entry: any) => entry?.Item ?? entry;
+
     return NextResponse.json({
       source:     "楽天市場",
       fetched_at: new Date().toISOString(),
       keyword,
-      total:      raw.count  ?? items.length,
-      page:       raw.page   ?? 1,
-      results: items.map((item) => ({
-        itemName:       item.itemName        ?? "",
-        shop:           item.shopName        ?? "",
-        price:          item.itemPrice       ?? 0,
-        point_rate:     item.pointRate       ?? 1,
-        review_average: item.reviewAverage   ?? 0,
-        review_count:   item.reviewCount     ?? 0,
-        url:            item.itemUrl         ?? "",
-        imageUrl:       item.mediumImageUrls?.[0]?.imageUrl ?? null,
-      })),
+      total:      raw.count ?? items.length,
+      page:       raw.page  ?? 1,
+      results: items.map((entry) => {
+        const item = normalize(entry);
+        return {
+          itemName:       item.itemName        ?? "",
+          shop:           item.shopName        ?? "",
+          price:          item.itemPrice       ?? 0,
+          point_rate:     item.pointRate       ?? 1,
+          review_average: item.reviewAverage   ?? 0,
+          review_count:   item.reviewCount     ?? 0,
+          url:            item.itemUrl         ?? "",
+          imageUrl:       item.mediumImageUrls?.[0]?.imageUrl ?? null,
+        };
+      }),
     });
   } catch (err) {
     return NextResponse.json(
