@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
 
   const keyword       = searchParams.get("keyword") || "";
-  const hits          = Math.min(Number(searchParams.get("hits") || "10"), 30);
+  const hits          = Math.min(Number(searchParams.get("hits") || "10"), 100);
   const accessKey     = searchParams.get("accessKey") || process.env.RAKUTEN_ACCESS_KEY || "";
   const applicationId = searchParams.get("appId") || searchParams.get("applicationId") || process.env.RAKUTEN_APP_ID || "";
 

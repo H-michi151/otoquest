@@ -1,0 +1,207 @@
+{
+  "main": {
+    "id": "bfbf2de1b57bb345",
+    "type": "split",
+    "children": [
+      {
+        "id": "a9fc9f7881fec689",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "827c8bd4a07cbca6",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "1_使用書データ/2_antigravityへの指示内容/指示内容.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "指示内容"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "98a7ec7bde3456bd",
+    "type": "split",
+    "children": [
+      {
+        "id": "1198bdc2783e4f78",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "2a3bb0adaa9710f0",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": true
+              },
+              "icon": "lucide-folder-closed",
+              "title": "ファイルエクスプローラ"
+            }
+          },
+          {
+            "id": "611f7890a6d0b24b",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "検索"
+            }
+          },
+          {
+            "id": "23e53547537ffc4e",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "ブックマーク"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "ea1e0f43d9f27ae7",
+    "type": "split",
+    "children": [
+      {
+        "id": "0a9417906940125c",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "edbc7496dc79515c",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "Sharopass.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Sharopassへのバックリンク"
+            }
+          },
+          {
+            "id": "a7abf49a7c3a509e",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "Sharopass.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Sharopassからのアウトゴーイングリンク"
+            }
+          },
+          {
+            "id": "bd88b9a8bbc37c3e",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "タグ"
+            }
+          },
+          {
+            "id": "cef14b87900fc378",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "すべてのプロパティ"
+            }
+          },
+          {
+            "id": "b49d050cfcda3dc0",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "Sharopass.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Sharopassのアウトライン"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:クイックスイッチャーを開く": false,
+      "graph:グラフビューを開く": false,
+      "canvas:新規キャンバスを作成": false,
+      "daily-notes:今日のデイリーノートを開く": false,
+      "templates:テンプレートを挿入": false,
+      "command-palette:コマンドパレットを開く": false,
+      "bases:新規ベースを作成": false
+    }
+  },
+  "active": "827c8bd4a07cbca6",
+  "lastOpenFiles": [
+    "1_使用書データ/2_antigravityへの指示内容/otoQest.md",
+    "1_使用書データ/オトクエスト全体使用_最新版.md",
+    "1_使用書データ/2_antigravityへの指示内容/指示内容.md",
+    "1_使用書データ/2_antigravityへの指示内容/問題点・課題.md",
+    "Sharopass.md",
+    "無題のファイル 1.base",
+    "無題のファイル.base",
+    "問題点・課題/無題のファイル.md",
+    "無題のファイル 1.md",
+    "無題のファイル.canvas",
+    "1＿Sharopass運営.md",
+    "無題のフォルダ",
+    "Claudeの回答.md",
+    "問題点・課題",
+    "1_使用書データ",
+    "リンクを作成.md",
+    "ようこそ.md",
+    "1_使用書データ/2_antigravityへの指示内容"
+  ]
+}

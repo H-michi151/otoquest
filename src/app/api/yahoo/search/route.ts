@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
 
   const keyword = searchParams.get("keyword") || "";
-  const hits    = Math.min(Number(searchParams.get("hits") || "10"), 50);
+  const hits    = Math.min(Number(searchParams.get("hits") || "10"), 100);
   const appId   = searchParams.get("appId") || process.env.YAHOO_APP_ID || "";
 
   if (!appId) {
@@ -45,10 +45,14 @@ export async function GET(request: NextRequest) {
 
   const url = `${YAHOO_API}?${params.toString()}`;
 
+  const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://otoquest-uiov.vercel.app";
+
   try {
     const res = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (OtoQuest/1.0)",
+        "User-Agent": "Mozilla/5.0 (compatible; OtoQuest/1.0)",
+        "Referer":    APP_URL,
+        "Origin":     APP_URL,
       },
       signal: AbortSignal.timeout(12000),
     });

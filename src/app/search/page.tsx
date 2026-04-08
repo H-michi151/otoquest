@@ -1,6 +1,12 @@
 "use client";
 import { useState, useEffect } from "react";
 import { config } from "@/lib/config";
+import {
+  enrichItem,
+  rankItems,
+  defaultUserCardNames,
+  type EnrichedItem,
+} from "@/lib/realPrice";
 
 import {
   productSearchResults,
@@ -35,17 +41,6 @@ const MODE_LABELS: Record<OptimizationMode, { label: string; icon: string; desc:
   max_points:   { label: "ポイント最大化", icon: "🎯", desc: "利用可能ポイントを最大化（失効リスク加味）" },
 };
 
-interface LiveResult {
-  itemName: string;
-  shop: string;
-  price: number;
-  point_rate: number;
-  review_average: number;
-  review_count: number;
-  url: string;
-  imageUrl?: string | null;
-}
-
 export default function SearchPage() {
   const [query, setQuery] = useState("");
   const [searched, setSearched] = useState(false);
@@ -60,8 +55,6 @@ export default function SearchPage() {
   // ========================================
   // APIモード切替（ランタイム）
   // ========================================
-  // 初期値は .env.local の NEXT_PUBLIC_USE_REAL_API
-  // sessionStorage で上書き可能（ページリロードまで持続）
   const SESSION_MODE_KEY = "otoquest_use_real_api";
   const [useRealApi, setUseRealApiState] = useState(config.useRealApi);
 
@@ -74,17 +67,32 @@ export default function SearchPage() {
     const next = !useRealApi;
     setUseRealApiState(next);
     sessionStorage.setItem(SESSION_MODE_KEY, String(next));
-    // モード変更時はリアルAPI結果をリセット
-    setLiveResults([]);
+    setCompareResults([]);
     setLiveError("");
     setLiveLoading(false);
   };
 
-  // リアルAPIの取得結果
-  const [liveResults, setLiveResults] = useState<LiveResult[]>([]);
+  // ========================================
+  // カード個別化（テスト用プリセット）
+  // ========================================
+  const CARD_PRESETS: Record<string, string[]> = {
+    "全カード（デフォルト）": defaultUserCardNames,
+    "楽天カードのみ（パターンA）": ["楽天カード"],
+    "PayPayカードのみ（パターンB）": ["PayPayカード"],
+    "カードなし": [],
+  };
+  const [cardPresetKey, setCardPresetKey] = useState("全カード（デフォルト）");
+  const userCards = CARD_PRESETS[cardPresetKey] ?? defaultUserCardNames;
+
+  // ========================================
+  // リアルAPI（楽天＋Yahoo 並列）
+  // ========================================
+  const [compareResults, setCompareResults] = useState<EnrichedItem[]>([]);
   const [liveLoading, setLiveLoading] = useState(false);
   const [liveError, setLiveError] = useState("");
   const [liveAppId, setLiveAppId] = useState("");
+  const [rakutenTotal, setRakutenTotal] = useState(0);
+  const [yahooTotal, setYahooTotal] = useState(0);
 
   // アプリIDをsessionStorageから復元（api-testページと共有）
   useEffect(() => {
@@ -92,21 +100,66 @@ export default function SearchPage() {
     if (saved) setLiveAppId(saved);
   }, []);
 
-  // リアルAPI検索実行
-  const searchRealApi = async (keyword: string) => {
+  // userCards変更時にリランク
+  useEffect(() => {
+    if (compareResults.length === 0) return;
+    setCompareResults((prev) =>
+      rankItems(prev.map((item) => enrichItem(item, item.source, userCards, item.couponDiscount)))
+    );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardPresetKey]);
+
+  // 楽天・Yahoo並列フェッチ
+  const searchBothApis = async (keyword: string) => {
     if (!keyword.trim()) return;
     setLiveLoading(true);
     setLiveError("");
-    setLiveResults([]);
+    setCompareResults([]);
+    setRakutenTotal(0);
+    setYahooTotal(0);
+
     try {
-      const params = new URLSearchParams({ keyword, hits: "10" });
-      if (liveAppId.trim()) params.set("applicationId", liveAppId.trim());
-      const res = await fetch(`/api/rakuten/search?${params}`);
-      const data = await res.json();
-      if (data.error) {
-        setLiveError(data.hint ?? data.error);
+      const rakutenParams = new URLSearchParams({ keyword, hits: "10" });
+      if (liveAppId.trim()) rakutenParams.set("applicationId", liveAppId.trim());
+
+      const [rakutenRes, yahooRes] = await Promise.all([
+        fetch(`/api/rakuten/search?${rakutenParams}`),
+        fetch(`/api/yahoo/search?${new URLSearchParams({ keyword, hits: "10" })}`),
+      ]);
+
+      const [rakutenData, yahooData] = await Promise.all([
+        rakutenRes.json(),
+        yahooRes.json(),
+      ]);
+
+      const errors: string[] = [];
+      const allEnriched: EnrichedItem[] = [];
+
+      if (rakutenData.error) {
+        errors.push(`楽天: ${rakutenData.hint ?? rakutenData.error}`);
       } else {
-        setLiveResults(data.results ?? []);
+        setRakutenTotal(rakutenData.total ?? 0);
+        const items = (rakutenData.results ?? []) as EnrichedItem[];
+        items.forEach((item) => {
+          allEnriched.push(enrichItem(item, "楽天市場", userCards));
+        });
+      }
+
+      if (yahooData.error) {
+        errors.push(`Yahoo!: ${yahooData.error}`);
+      } else {
+        setYahooTotal(yahooData.total ?? 0);
+        const items = (yahooData.results ?? []) as EnrichedItem[];
+        items.forEach((item) => {
+          allEnriched.push(enrichItem(item, "Yahoo!ショッピング", userCards));
+        });
+      }
+
+      if (errors.length === 2) {
+        setLiveError(errors.join(" / "));
+      } else {
+        if (errors.length === 1) setLiveError(errors[0]);
+        setCompareResults(rankItems(allEnriched));
       }
     } catch (e) {
       setLiveError(String(e));
@@ -118,7 +171,7 @@ export default function SearchPage() {
   // 検索実行（モード分岐）
   const handleSearch = () => {
     setSearched(true);
-    if (useRealApi) searchRealApi(query);
+    if (useRealApi) searchBothApis(query);
   };
 
   const results = productSearchResults(query);
@@ -910,80 +963,234 @@ export default function SearchPage() {
               </div>
             );
           })}
-          {/* ========== リアルAPI 楽天市場結果パネル ========== */}
+          {/* ========== リアルAPI 楽天+Yahoo 実質価格比較パネル ========== */}
           {useRealApi && searched && (
             <div style={{ marginTop: 16 }}>
+              {/* ヘッダー */}
               <div style={{
-                padding: "10px 16px", borderRadius: "10px 10px 0 0",
-                background: "#fffbeb", border: "1px solid #fde68a", borderBottom: "none",
-                display: "flex", alignItems: "center", gap: 8,
+                padding: "12px 16px", borderRadius: "10px 10px 0 0",
+                background: "linear-gradient(135deg,#1e40af 0%,#7c3aed 100%)",
+                display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
               }}>
-                <span style={{ fontSize: 14, fontWeight: 700, color: "#92400e" }}>
-                  ⚡ 楽天市場 リアルタイムデータ
+                <span style={{ fontSize: 14, fontWeight: 700, color: "white" }}>⚡ 楽天市場 vs Yahoo!ショッピング — 実質価格比較</span>
+                <span style={{ fontSize: 11, color: "rgba(255,255,255,0.7)" }}>
+                  {liveLoading ? "並列取得中..." :
+                   compareResults.length > 0
+                    ? `楽天${rakutenTotal.toLocaleString()}件 / Yahoo${yahooTotal.toLocaleString()}件 → 上位${compareResults.length}件を実質価格でランキング`
+                    : liveError ? "" : "検索を実行してください"}
                 </span>
-                <span style={{ fontSize: 11, color: "#d97706" }}>
-                  {liveLoading ? "取得中..." :
-                   liveError ? "エラー" :
-                   liveResults.length > 0 ? `${liveResults.length}件取得` : ""}
-                </span>
+                {/* カード切替セレクター */}
+                <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 11, color: "rgba(255,255,255,0.8)", whiteSpace: "nowrap" }}>💳 保有カード:</span>
+                  <select
+                    value={cardPresetKey}
+                    onChange={(e) => setCardPresetKey(e.target.value)}
+                    style={{
+                      padding: "4px 8px", borderRadius: 6, border: "none",
+                      fontSize: 11, fontWeight: 700, cursor: "pointer",
+                      background: "rgba(255,255,255,0.95)", color: "#1e40af",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    {Object.keys(CARD_PRESETS).map((k) => (
+                      <option key={k} value={k}>{k}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
-              <div className="dq-card" style={{ borderTopLeftRadius: 0, borderTopRightRadius: 0, padding: 14 }}>
+
+              <div className="dq-card" style={{ borderTopLeftRadius: 0, borderTopRightRadius: 0, padding: 0, overflow: "hidden" }}>
                 {/* ローディング */}
                 {liveLoading && (
-                  <div style={{ textAlign: "center", padding: 24, color: "#d97706" }}>
-                    <div style={{ fontSize: 24, marginBottom: 6 }}>⏳</div>
-                    <div style={{ fontSize: 13 }}>楽天市場 API から取得中...</div>
+                  <div style={{ textAlign: "center", padding: 32, color: "#6d28d9" }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>⏳</div>
+                    <div style={{ fontSize: 13, fontWeight: 600 }}>楽天市場・Yahoo!ショッピングからリアルタイム取得中...</div>
+                    <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 4 }}>並列フェッチで高速化しています</div>
                   </div>
                 )}
-                {/* エラー */}
+
+                {/* 部分エラー通知 */}
                 {!liveLoading && liveError && (
-                  <div style={{ padding: 14, background: "#fff1f2", borderRadius: 8, fontSize: 13, color: "#dc2626" }}>
-                    <div style={{ fontWeight: 700, marginBottom: 6 }}>⚠️ APIエラー</div>
-                    <div style={{ color: "#64748b" }}>{liveError}</div>
-                    {!liveAppId && (
-                      <div style={{ marginTop: 8, padding: "8px 12px", background: "#fffbeb", borderRadius: 6, fontSize: 12, color: "#92400e" }}>
-                        💡 <strong>アプリIDを設定してください：</strong>
-                        サイドバー「🔗 API接続テスト」でアプリIDを入力・保存すると、こちらで自動的に使用されます。
-                      </div>
-                    )}
+                  <div style={{ padding: "8px 14px", background: "#fffbeb", borderBottom: "1px solid #fde68a", fontSize: 11, color: "#92400e", display: "flex", gap: 8 }}>
+                    <span>⚠️</span><span>{liveError}</span>
                   </div>
                 )}
-                {/* 検索結果 */}
-                {!liveLoading && !liveError && liveResults.length > 0 && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                    {liveResults.map((item, i) => (
-                      <div key={i} style={{
-                        padding: 12, borderRadius: 8,
-                        background: i === 0 ? "#faf5ff" : "#fafafa",
-                        border: i === 0 ? "1px solid #c4b5fd" : "1px solid #e2e8f0",
-                        display: "flex", gap: 12, alignItems: "center",
+
+                {/* 比較テーブル */}
+                {!liveLoading && compareResults.length > 0 && (() => {
+                  const ranked = compareResults;
+                  const top = ranked[0];
+                  const topReal = top.realPrice;
+                  // 1位との差額でグルーピング
+                  const rakutenBest = ranked.filter(r => r.source === "楽天市場").sort((a,b)=>a.realPrice-b.realPrice)[0];
+                  const yahooBest  = ranked.filter(r => r.source === "Yahoo!ショッピング").sort((a,b)=>a.realPrice-b.realPrice)[0];
+
+                  // 推奨先サマリー
+                  const winner = top.source;
+                  const diff = rakutenBest && yahooBest
+                    ? Math.abs(rakutenBest.realPrice - yahooBest.realPrice)
+                    : null;
+                  const isDraw = diff !== null && diff <= 100;
+
+                  return (
+                    <div>
+                      {/* サマリーバナー */}
+                      <div style={{
+                        padding: "12px 16px",
+                        background: isDraw ? "#fffbeb" : "#f0fdf4",
+                        borderBottom: `2px solid ${isDraw ? "#fde68a" : "#86efac"}`,
+                        display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
                       }}>
-                        {item.imageUrl && (
-                          <img src={item.imageUrl} alt="" style={{ width: 56, height: 56, objectFit: "contain", borderRadius: 6, border: "1px solid #e2e8f0", flexShrink: 0 }} />
-                        )}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: "#1e293b", lineHeight: 1.4, marginBottom: 2 }}>{item.itemName}</div>
-                          <div style={{ fontSize: 11, color: "#64748b", marginBottom: 4 }}>{item.shop}</div>
-                          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                            <span style={{ fontSize: 16, fontWeight: 900, color: "#cc0000" }}>¥{item.price.toLocaleString()}</span>
-                            <span style={{ fontSize: 11, color: "#d97706", fontWeight: 600 }}>ポイント{item.point_rate}倍</span>
-                            {item.review_count > 0 && (
-                              <span style={{ fontSize: 11, color: "#64748b" }}>⭐ {item.review_average} ({item.review_count}件)</span>
-                            )}
+                        <div>
+                          <div style={{ fontSize: 12, color: "#64748b", marginBottom: 2 }}>🏆 推奨購入先</div>
+                          <div style={{ fontSize: 20, fontWeight: 900, color: isDraw ? "#92400e" : "#065f46" }}>
+                            {isDraw
+                              ? `${winner}（差額±${diff}円以内 → カード還元優先）`
+                              : winner}
                           </div>
                         </div>
-                        <a href={item.url} target="_blank" rel="noopener noreferrer"
-                          style={{ padding: "6px 12px", background: "#cc0000", color: "white", borderRadius: 6, fontSize: 11, fontWeight: 700, textDecoration: "none", flexShrink: 0 }}>
-                          楽天で見る
-                        </a>
+                        <div style={{ textAlign: "right", marginLeft: "auto" }}>
+                          <div style={{ fontSize: 11, color: "#64748b" }}>実質最安値</div>
+                          <div style={{ fontSize: 24, fontWeight: 900, color: "#059669" }}>¥{topReal.toLocaleString()}</div>
+                          <div style={{ fontSize: 10, color: "#94a3b8" }}>({top.cardName} {top.cardRate > 0 ? `+${top.cardRate}%` : "カードなし"})</div>
+                        </div>
+                        {rakutenBest && yahooBest && !isDraw && (
+                          <div style={{ padding: "8px 12px", background: "rgba(5,150,105,0.08)", borderRadius: 8, border: "1px solid #86efac", fontSize: 12, color: "#065f46" }}>
+                            💡 {winner}の方が <strong>¥{diff?.toLocaleString()}</strong> お得（カード還元込み）
+                          </div>
+                        )}
                       </div>
-                    ))}
-                  </div>
-                )}
+
+                      {/* カード設定インジケーター */}
+                      <div style={{ padding: "8px 16px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", display: "flex", gap: 16, fontSize: 11 }}>
+                        <span style={{ color: "#64748b" }}>適用カード設定:</span>
+                        <span style={{ fontWeight: 700, color: "#cc0000" }}>楽天市場: {userCards.length > 0 ? (userCards.find(c => (c === "楽天カード" || c === "三井住友カード(NL)" || c === "Amazonカード" || c === "イオンカード" || c === "PayPayカード"))) ?? "最適選択" : "なし（実質価格のみ）"} → {ranked.find(r=>r.source==="楽天市場")?.cardRate ?? 0}%追加</span>
+                        <span style={{ fontWeight: 700, color: "#1a237e" }}>Yahoo!: {ranked.find(r=>r.source==="Yahoo!ショッピング")?.cardName ?? "なし"} → {ranked.find(r=>r.source==="Yahoo!ショッピング")?.cardRate ?? 0}%追加</span>
+                      </div>
+
+                      {/* ランキングテーブル */}
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                          <thead>
+                            <tr style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0" }}>
+                              {["順位","購入先","商品名","表示価格","クーポン","ポイント還元","カード追加","ポイント価値","実質価格"].map(h => (
+                                <th key={h} style={{ padding: "8px 10px", textAlign: h === "実質価格" ? "right" : "left", fontWeight: 700, color: "#374151", fontSize: 11, whiteSpace: "nowrap" }}>{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {ranked.map((item, i) => {
+                              const isTop = i === 0;
+                              const gapFromTop = item.realPrice - topReal;
+                              const srcColor = item.source === "楽天市場" ? "#cc0000" : "#1a237e";
+                              const srcBg    = item.source === "楽天市場" ? "#fff5f5" : "#f0f4ff";
+                              return (
+                                <tr key={i} style={{
+                                  background: isTop ? "#f0fdf4" : i % 2 === 0 ? "#fafafa" : "white",
+                                  border: isTop ? "2px solid #86efac" : "none",
+                                  borderBottom: "1px solid #f1f5f9",
+                                }}>
+                                  {/* 順位 */}
+                                  <td style={{ padding: "10px 10px", textAlign: "center" }}>
+                                    {isTop
+                                      ? <span style={{ fontSize: 18 }}>🏆</span>
+                                      : <span style={{ fontSize: 13, fontWeight: 700, color: "#94a3b8" }}>{i + 1}位</span>}
+                                    {isTop && (
+                                      <div style={{ fontSize: 9, fontWeight: 700, color: "#059669", marginTop: 1 }}>最安</div>
+                                    )}
+                                    {!isTop && gapFromTop <= 500 && (
+                                      <div style={{ fontSize: 9, color: "#94a3b8" }}>+¥{gapFromTop.toLocaleString()}</div>
+                                    )}
+                                  </td>
+                                  {/* 購入先 */}
+                                  <td style={{ padding: "10px 8px" }}>
+                                    <span style={{
+                                      padding: "3px 8px", borderRadius: 12, fontSize: 11, fontWeight: 700,
+                                      color: srcColor, background: srcBg, whiteSpace: "nowrap",
+                                    }}>
+                                      {item.source === "楽天市場" ? "🦅 楽天" : "🛍️ Yahoo!"}
+                                    </span>
+                                  </td>
+                                  {/* 商品名 */}
+                                  <td style={{ padding: "10px 8px", maxWidth: 280 }}>
+                                    <a href={item.url} target="_blank" rel="noopener noreferrer"
+                                      style={{ color: "#1e40af", textDecoration: "none", fontSize: 11, lineHeight: 1.4, display: "block" }}
+                                    >
+                                      {item.itemName.length > 45 ? item.itemName.slice(0, 45) + "..." : item.itemName}
+                                    </a>
+                                    <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>{item.shop}</div>
+                                  </td>
+                                  {/* 表示価格 */}
+                                  <td style={{ padding: "10px 8px", whiteSpace: "nowrap" }}>
+                                    <span style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>¥{item.price.toLocaleString()}</span>
+                                  </td>
+                                  {/* クーポン */}
+                                  <td style={{ padding: "10px 8px", textAlign: "center" }}>
+                                    {item.couponDiscount > 0
+                                      ? <span style={{ fontSize: 11, fontWeight: 700, color: "#9333ea" }}>-¥{item.couponDiscount.toLocaleString()}</span>
+                                      : <span style={{ fontSize: 11, color: "#cbd5e1" }}>—</span>}
+                                  </td>
+                                  {/* ポイント還元 */}
+                                  <td style={{ padding: "10px 8px", whiteSpace: "nowrap" }}>
+                                    <span style={{ fontSize: 11, color: item.source === "楽天市場" ? "#cc0000" : "#1a237e", fontWeight: 600 }}>
+                                      {item.point_rate}%
+                                    </span>
+                                    <div style={{ fontSize: 10, color: "#94a3b8" }}>利用頻度 {Math.round(item.usabilityRate * 100)}%</div>
+                                  </td>
+                                  {/* カード追加 */}
+                                  <td style={{ padding: "10px 8px", whiteSpace: "nowrap" }}>
+                                    {item.cardRate > 0
+                                      ? <>
+                                          <span style={{ fontSize: 11, fontWeight: 700, color: "#0ea5e9" }}>+{item.cardRate}%</span>
+                                          <div style={{ fontSize: 10, color: "#64748b" }}>{item.cardName}</div>
+                                        </>
+                                      : <span style={{ fontSize: 11, color: "#cbd5e1" }}>—</span>}
+                                  </td>
+                                  {/* ポイント価値（円換算） */}
+                                  <td style={{ padding: "10px 8px", whiteSpace: "nowrap" }}>
+                                    <span style={{ fontSize: 11, fontWeight: 600, color: "#059669" }}>-¥{item.pointValue.toLocaleString()}</span>
+                                    <div style={{ fontSize: 10, color: "#94a3b8" }}>合計{item.totalRate}%還元</div>
+                                  </td>
+                                  {/* 実質価格 */}
+                                  <td style={{ padding: "10px 12px", textAlign: "right" }}>
+                                    <div style={{ fontSize: 16, fontWeight: 900, color: isTop ? "#059669" : "#374151" }}>
+                                      ¥{item.realPrice.toLocaleString()}
+                                    </div>
+                                    {isTop && (
+                                      <div style={{ fontSize: 9, color: "#059669", fontWeight: 700 }}>✅ 最安</div>
+                                    )}
+                                    <a href={item.url} target="_blank" rel="noopener noreferrer"
+                                      style={{
+                                        display: "inline-block", marginTop: 4,
+                                        padding: "3px 10px", borderRadius: 5,
+                                        background: isTop ? "#059669" : srcColor,
+                                        color: "white", fontSize: 10, fontWeight: 700,
+                                        textDecoration: "none",
+                                      }}
+                                    >
+                                      {item.source === "楽天市場" ? "楽天で見る" : "Yahoo!で見る"}
+                                    </a>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* 計算式の説明 */}
+                      <div style={{ padding: "8px 16px", background: "#f8fafc", borderTop: "1px solid #e2e8f0", fontSize: 10, color: "#94a3b8" }}>
+                        💡 実質価格 = 表示価格 − クーポン割引 − floor(価格 × ポイント還元率 × ポイント利用頻度)
+                        　カード追加還元は合計還元率に加算済み。楽天利用頻度100%・Yahoo70%で計算。
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* 未実行 */}
-                {!liveLoading && !liveError && liveResults.length === 0 && (
-                  <div style={{ textAlign: "center", padding: 20, color: "#94a3b8", fontSize: 13 }}>
-                    検索を実行すると楽天市場のリアルデータが表示されます
+                {!liveLoading && !liveError && compareResults.length === 0 && (
+                  <div style={{ textAlign: "center", padding: 24, color: "#94a3b8", fontSize: 13 }}>
+                    検索すると楽天・Yahooのリアルデータで実質価格比較を行います
                   </div>
                 )}
               </div>

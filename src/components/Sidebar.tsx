@@ -4,11 +4,14 @@ import { usePathname } from "next/navigation";
 
 const navItems = [
   { href: "/", icon: "🏠", label: "マイページ", sub: "ダッシュボード" },
+  { href: "/compare", icon: "💰", label: "価格比較", sub: "実質価格・最安判定" },
   { href: "/search", icon: "⚔️", label: "商品検索", sub: "最安値・最適購入" },
   { href: "/cards", icon: "💳", label: "カード管理", sub: "クレカ最適化" },
   { href: "/matrix", icon: "📊", label: "還元率マトリクス", sub: "28パターン比較" },
   { href: "/orders", icon: "📦", label: "注文管理", sub: "発送追跡" },
+  { href: "/history", icon: "💚", label: "購入履歴・節約額", sub: "節約実績" },
   { href: "/campaigns", icon: "🎯", label: "キャンペーン", sub: "自動エントリー" },
+  { href: "/settings", icon: "⚙️", label: "設定", sub: "還元率・予算ライン" },
   { href: "/trust", icon: "🛡️", label: "信頼フィルター", sub: "悪徳業者判定" },
   { href: "/api-test", icon: "🔗", label: "API接続テスト", sub: "楽天リアルデータ" },
   { href: "/guild", icon: "🏚️", label: "モンスターハウス", sub: "モンスター・バトル" },
