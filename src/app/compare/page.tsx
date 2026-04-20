@@ -2,6 +2,48 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { loadSettings, type UserSettings, defaultSettings } from "@/app/settings/page";
+import { loadCards, type Card } from "@/app/settings/page";
+import { getKakakuPrice } from "@/lib/firebase";
+
+// ===== 価格.com URL生成 =====
+const SP = '\u3000'; // 全角スペース
+
+function detectCategory(keyword: string): string {
+  const k = keyword.toUpperCase();
+  if (/\bSSD\b|M\.2|NVME|SATA/i.test(k)) return 'ssd';
+  if (/DDR[45]|DIMM|SODIMM|\bRAM\b|\bMEMORY\b|メモリ/i.test(k)) return 'memory';
+  if (/RTX|RX\s*\d{4}|RADEON|GEFORCE|GPU|グラボ/i.test(k)) return 'gpu';
+  if (/CORE\s*I[3579]|RYZEN|XEON|CPU|プロセッサ/i.test(k)) return 'cpu';
+  return 'other';
+}
+
+function buildKakakuUrl(keyword: string): string {
+  const category = detectCategory(keyword);
+  let query = '';
+  switch (category) {
+    case 'ssd': {
+      // keyword例: "Samsung 1TB NVMe"
+      query = `SSD${SP}${keyword.replace(/\s+/g, SP)}${SP}M.2${SP}内蔵`;
+      break;
+    }
+    case 'memory': {
+      // DDR5/DDR4 + 容量をそのまま活用
+      query = `${keyword.replace(/\s+/g, SP)}${SP}DIMM${SP}2枚組`;
+      break;
+    }
+    case 'gpu': {
+      query = `GPU${SP}${keyword.replace(/\s+/g, SP)}`;
+      break;
+    }
+    case 'cpu': {
+      query = keyword;
+      break;
+    }
+    default:
+      query = keyword;
+  }
+  return `https://search.kakaku.com/${encodeURIComponent(query)}/?act=Input`;
+}
 
 interface ShopResult {
   shop: "rakuten" | "yahoo" | "kakaku";
@@ -20,6 +62,51 @@ const calcRealPrice = (basePrice: number, pointRate: number, coupon: number) =>
 const calcPointValue = (basePrice: number, pointRate: number) =>
   Math.round(basePrice * pointRate / 100);
 
+// ===== 購入記録 localStorage =====
+const PURCHASES_KEY = "otoquest_purchases";
+
+interface Purchase {
+  id: string;
+  productName: string;
+  price: number;
+  shop: string;
+  cardId: string;
+  purchasedAt: string; // "2026-04-16"
+  month: string;       // "2026-04"
+}
+
+function savePurchase(p: Purchase): void {
+  try {
+    const raw = localStorage.getItem(PURCHASES_KEY);
+    const list: Purchase[] = raw ? JSON.parse(raw) : [];
+    list.unshift(p);
+    localStorage.setItem(PURCHASES_KEY, JSON.stringify(list));
+  } catch { /* ignore */ }
+}
+
+function todayStr(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function monthStr(): string {
+  return new Date().toISOString().slice(0, 7);
+}
+
+/**
+ * Firestoreのkakaku_pricesを検索し、マッチしたkakakuUrlを返す。
+ * マッチしない・未設定の場合はフォールバックURLを返す。
+ */
+async function openKakakuUrl(keyword: string): Promise<void> {
+  const fallback = `https://search.kakaku.com/${encodeURIComponent(keyword)}/?act=Input`;
+  try {
+    const match = await getKakakuPrice(keyword);
+    const url = match?.kakakuUrl || fallback;
+    window.open(url, '_blank');
+  } catch {
+    window.open(fallback, '_blank');
+  }
+}
+
 export default function ComparePage() {
   const router = useRouter();
   const [settings, setSettings] = useState<UserSettings>(defaultSettings);
@@ -37,8 +124,23 @@ export default function ComparePage() {
   const [results, setResults] = useState<ShopResult[]>([]);
   const [searched, setSearched] = useState(false);
 
+  // ===== 購入記録ポップアップ用 state =====
+  const [popup, setPopup] = useState<{
+    open: boolean;
+    productName: string;
+    price: number;
+    shop: string;
+    shopUrl: string;
+  } | null>(null);
+  const [cards, setCards] = useState<Card[]>([]);
+  const [selectedCardId, setSelectedCardId] = useState<string>("");
+  const [popupPrice, setPopupPrice] = useState<number>(0);
+
   useEffect(() => {
     setSettings(loadSettings());
+    const c = loadCards();
+    setCards(c);
+    if (c.length > 0) setSelectedCardId(c[0].id);
   }, []);
 
   // API検索
@@ -371,17 +473,49 @@ export default function ComparePage() {
                       </div>
                     </div>
 
-                    {shopKey && (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "stretch" }}>
+                      {shopKey && (
+                        <button
+                          className="btn-primary"
+                          onClick={() => {
+                            setPopup({
+                              open: true,
+                              productName: keyword || r.label,
+                              price: r.realPrice,
+                              shop: r.label,
+                              shopUrl: shopUrl ?? "",
+                            });
+                            setPopupPrice(r.realPrice);
+                            const c = loadCards();
+                            setCards(c);
+                            if (c.length > 0 && !selectedCardId) setSelectedCardId(c[0].id);
+                          }}
+                          style={{ whiteSpace: "nowrap", fontSize: 13 }}
+                        >
+                          このショップで買う →
+                        </button>
+                      )}
                       <button
-                        className="btn-primary"
-                        onClick={() => {
-                          router.push(`/assist?shop=${shopKey}&url=${encodeURIComponent(shopUrl ?? "")}&realPrice=${r.realPrice}&basePrice=${r.basePrice}`);
+                        onClick={() => openKakakuUrl(keyword)}
+                        style={{
+                          whiteSpace: "nowrap",
+                          fontSize: 11,
+                          padding: "6px 10px",
+                          borderRadius: 7,
+                          border: "1px solid #f59e0b",
+                          background: "#fffbeb",
+                          color: "#92400e",
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          fontFamily: "inherit",
+                          transition: "background 0.15s",
                         }}
-                        style={{ whiteSpace: "nowrap", fontSize: 13 }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "#fef3c7")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "#fffbeb")}
                       >
-                        このショップで買う →
+                        価格.comで確認 ↗
                       </button>
-                    )}
+                    </div>
                   </div>
                 </div>
               );
@@ -393,6 +527,136 @@ export default function ComparePage() {
       {searched && results.length === 0 && (
         <div className="dq-card" style={{ padding: 24, textAlign: "center", color: "#94a3b8" }}>
           比較できるデータがありません。価格を入力してください。
+        </div>
+      )}
+
+      {/* ===== 購入記録ポップアップ ===== */}
+      {popup?.open && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 1000,
+            background: "rgba(0,0,0,0.45)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setPopup(null); }}
+        >
+          <div
+            style={{
+              background: "white", borderRadius: 16, padding: 28,
+              width: 420, maxWidth: "90vw",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
+            }}
+          >
+            <div style={{ fontSize: 17, fontWeight: 900, color: "#1e293b", marginBottom: 20 }}>
+              🗒️ 購入を記録しますか？
+            </div>
+
+            {/* 商品名 */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>商品名</label>
+              <div style={{
+                padding: "9px 12px", borderRadius: 8,
+                background: "#f8fafc", border: "1px solid #e2e8f0",
+                fontSize: 14, color: "#374151",
+              }}>{popup.productName}</div>
+            </div>
+
+            {/* 購入価格 */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>購入価格（円）</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ color: "#64748b" }}>¥</span>
+                <input
+                  type="number"
+                  className="dq-input"
+                  value={popupPrice}
+                  min={0}
+                  onChange={(e) => setPopupPrice(Number(e.target.value))}
+                  style={{ flex: 1 }}
+                />
+              </div>
+            </div>
+
+            {/* ショップ名 */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>ショップ</label>
+              <div style={{
+                padding: "9px 12px", borderRadius: 8,
+                background: "#f8fafc", border: "1px solid #e2e8f0",
+                fontSize: 14, color: "#374151",
+              }}>{popup.shop}</div>
+            </div>
+
+            {/* カード選択 */}
+            <div style={{ marginBottom: 24 }}>
+              <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>使用カード</label>
+              {cards.length === 0 ? (
+                <div style={{ fontSize: 12, color: "#94a3b8" }}>カードが登録されていません（設定ページで追加できます）</div>
+              ) : (
+                <select
+                  value={selectedCardId}
+                  onChange={(e) => setSelectedCardId(e.target.value)}
+                  style={{
+                    width: "100%", padding: "9px 12px", borderRadius: 8,
+                    border: "1px solid #e2e8f0", fontSize: 14,
+                    fontFamily: "inherit", background: "white", cursor: "pointer",
+                  }}
+                >
+                  {cards.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {/* ボタン群 */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button
+                className="btn-primary"
+                style={{ fontSize: 14 }}
+                onClick={() => {
+                  savePurchase({
+                    id: `purchase_${Date.now()}`,
+                    productName: popup.productName,
+                    price: popupPrice,
+                    shop: popup.shop,
+                    cardId: selectedCardId,
+                    purchasedAt: todayStr(),
+                    month: monthStr(),
+                  });
+                  setPopup(null);
+                  window.open(popup.shopUrl, "_blank");
+                }}
+              >
+                🗒️ 記録して購入ページへ
+              </button>
+              <button
+                onClick={() => {
+                  setPopup(null);
+                  window.open(popup.shopUrl, "_blank");
+                }}
+                style={{
+                  padding: "11px 0", borderRadius: 10,
+                  border: "1px solid #e2e8f0", background: "white",
+                  color: "#64748b", fontSize: 14, cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                記録せずに購入ページへ
+              </button>
+              <button
+                onClick={() => setPopup(null)}
+                style={{
+                  padding: "8px 0", borderRadius: 10,
+                  border: "none", background: "transparent",
+                  color: "#94a3b8", fontSize: 13, cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

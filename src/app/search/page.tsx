@@ -1,5 +1,6 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { getKakakuPrice, isStalePrice, type KakakuPrice } from "@/lib/firebase";
 import { config } from "@/lib/config";
 import {
   enrichItem,
@@ -51,6 +52,18 @@ export default function SearchPage() {
   const [favorites, setFavorites] = useState<Set<string>>(new Set(["Sony WH-1000XM5", "Logicool MX Keys S"]));
   const [priceMin, setPriceMin] = useState<string>("");
   const [priceMax, setPriceMax] = useState<string>("");
+
+  // ========================================
+  // 価格.com参考価格（Firestore kakaku_prices）
+  // ========================================
+  const [kakakuPriceMap, setKakakuPriceMap] = useState<Record<string, KakakuPrice | null>>({});
+
+  const fetchKakakuPrice = useCallback(async (productName: string) => {
+    if (kakakuPriceMap[productName] !== undefined) return; // キャッシュ済み
+    setKakakuPriceMap((prev) => ({ ...prev, [productName]: null })); // loading placeholder
+    const result = await getKakakuPrice(productName);
+    setKakakuPriceMap((prev) => ({ ...prev, [productName]: result }));
+  }, [kakakuPriceMap]);
 
   // ========================================
   // APIモード切替（ランタイム）
@@ -960,6 +973,76 @@ export default function SearchPage() {
                     🎯 {campaignOn ? "キャンペーン込みON" : "キャンペーン込み"}
                   </button>
                 </div>
+
+                {/* ===== 価格.com参考価格セクション ===== */}
+                {(() => {
+                  // Firestoreフェッチをトリガー
+                  if (kakakuPriceMap[product.name] === undefined) {
+                    fetchKakakuPrice(product.name);
+                  }
+                  const kp = kakakuPriceMap[product.name];
+                  if (!kp) return null; // 未設定またはマッチなし
+                  const stale = isStalePrice(kp.fetchedAt);
+                  return (
+                    <div
+                      style={{
+                        marginTop: 12,
+                        padding: "10px 14px",
+                        background: "#fffbeb",
+                        border: "1px solid #f59e0b",
+                        borderRadius: 8,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <span style={{ fontSize: 13 }}>📋</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#92400e", marginBottom: 2 }}>
+                          価格.com参考最安値
+                        </div>
+                        <div style={{ display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 18, fontWeight: 900, color: "#b45309" }}>
+                            ¥{kp.minPrice.toLocaleString()}
+                          </span>
+                          <span style={{ fontSize: 11, color: "#78350f" }}>
+                            {kp.shopName}
+                          </span>
+                          <span style={{ fontSize: 10, color: "#92400e" }}>
+                            取得日: {kp.fetchedAt}
+                          </span>
+                          {kp.notes && (
+                            <span style={{ fontSize: 10, color: "#64748b" }}>{kp.notes}</span>
+                          )}
+                        </div>
+                        {stale && (
+                          <div style={{ fontSize: 10, color: "#dc2626", marginTop: 3 }}>
+                            ⚠️ ※価格は古い可能性があります
+                          </div>
+                        )}
+                      </div>
+                      <a
+                        href={kp.kakakuUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "#b45309",
+                          background: "#fef3c7",
+                          border: "1px solid #f59e0b",
+                          padding: "5px 10px",
+                          borderRadius: 6,
+                          textDecoration: "none",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        詳細を見る ↗
+                      </a>
+                    </div>
+                  );
+                })()}
               </div>
             );
           })}
