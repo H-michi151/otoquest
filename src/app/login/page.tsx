@@ -6,50 +6,41 @@ import { useAuth } from "@/context/AuthContext";
 export default function LoginPage() {
   const { user, loading, signInWithGoogle } = useAuth();
   const router = useRouter();
-  const [redirectChecking, setRedirectChecking] = useState(true);
+  // リダイレクト結果処理中フラグ
+  const [processing, setProcessing] = useState(true);
 
-  // リダイレクト方式: ページロード時に getRedirectResult を処理
+  // ① リダイレクト方式: ページロード時に getRedirectResult を処理
+  //    result.user が存在したら即 /search へ飛ぶ
   useEffect(() => {
-    let cancelled = false;
     (async () => {
       try {
         const { getRedirectResult } = await import("firebase/auth");
         const { auth } = await import("@/lib/firebase");
         if (auth) {
           const result = await getRedirectResult(auth);
-          if (result?.user && !cancelled) {
-            console.log("[Login] リダイレクトログイン成功:", result.user.email);
+          if (result?.user) {
+            // ログイン成功 → 直接遷移（onAuthStateChanged を待たない）
+            router.replace("/search");
+            return;
           }
         }
       } catch (e) {
-        console.error("[Login] getRedirectResult エラー:", e);
+        console.error("[Login] getRedirectResult error:", e);
       } finally {
-        if (!cancelled) setRedirectChecking(false);
+        setProcessing(false);
       }
     })();
-    return () => { cancelled = true; };
-  }, []);
+  }, [router]);
 
-  // ログイン済みなら /search へリダイレクト
+  // ② onAuthStateChanged 経由でログイン済みが判明した場合のフォールバック
   useEffect(() => {
-    if (!loading && !redirectChecking && user) {
+    if (!loading && !processing && user) {
       router.replace("/search");
     }
-  }, [user, loading, redirectChecking, router]);
+  }, [user, loading, processing, router]);
 
-  const handleLogin = async () => {
-    console.log("[Login] Googleログイン開始（リダイレクト方式）");
-    const { auth } = await import("@/lib/firebase");
-    if (!auth) {
-      alert("設定エラー: Firebase が初期化できていません。\nVercel の環境変数を確認してください。");
-      return;
-    }
-    await signInWithGoogle();
-    // signInWithRedirect はページ遷移するのでここには戻らない
-  };
-
-  // ロード中・リダイレクト確認中は何も表示しない
-  if (loading || redirectChecking) return null;
+  // 処理中 or 認証状態確認中は何も表示しない
+  if (processing || loading) return null;
 
   return (
     <div style={{
@@ -65,7 +56,6 @@ export default function LoginPage() {
         boxShadow: "0 30px 80px rgba(0,0,0,0.2)",
         textAlign: "center",
       }}>
-        {/* ロゴ */}
         <div style={{ fontSize: 56, marginBottom: 12 }}>🗡️</div>
         <h1 style={{ fontSize: 26, fontWeight: 900, color: "#1e293b", marginBottom: 8 }}>
           オトクエスト
@@ -75,14 +65,12 @@ export default function LoginPage() {
           ログインして最安値・最大ポイントを手に入れよう
         </p>
 
-        {/* Google ログインボタン */}
         <button
           id="google-login-btn"
-          onClick={handleLogin}
+          onClick={signInWithGoogle}
           style={{
             width: "100%", padding: "14px 0", borderRadius: 12,
-            border: "1px solid #e2e8f0",
-            background: "white",
+            border: "1px solid #e2e8f0", background: "white",
             color: "#374151", fontSize: 15, fontWeight: 700,
             cursor: "pointer", fontFamily: "inherit",
             display: "flex", alignItems: "center", justifyContent: "center", gap: 12,
@@ -98,7 +86,6 @@ export default function LoginPage() {
             (e.currentTarget as HTMLElement).style.transform = "translateY(0)";
           }}
         >
-          {/* Google SVG アイコン */}
           <svg width="20" height="20" viewBox="0 0 48 48" style={{ flexShrink: 0 }}>
             <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
             <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
