@@ -41,6 +41,7 @@ export default function OnboardingPage() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [cards, setCards] = useState<CardDraft[]>([{ ...BLANK_DRAFT }]);
   const [errors, setErrors] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
 
   // ===== Step2: カード操作 =====
   const updateCard = (idx: number, field: keyof CardDraft, value: string) => {
@@ -51,26 +52,36 @@ export default function OnboardingPage() {
   const removeCard = (idx: number) => setCards((prev) => prev.filter((_, i) => i !== idx));
 
   const validateAndNext = async () => {
+    if (saving) return;
     const errs: string[] = [];
     cards.forEach((c, i) => {
       if (!c.name.trim()) errs.push(`カード${i + 1}: 名前を入力してください`);
       if (!c.limit || Number(c.limit) <= 0) errs.push(`カード${i + 1}: 限度額は1以上を入力してください`);
-      if (!c.pointRate || Number(c.pointRate) < 0) errs.push(`カード${i + 1}: 還元率を入力してください`);
+      if (c.pointRate === "" || Number(c.pointRate) < 0) errs.push(`カード${i + 1}: 還元率を入力してください`);
     });
     if (cards.length === 0) errs.push("カードを1枚以上登録してください");
     if (errs.length > 0) { setErrors(errs); return; }
     setErrors([]);
-
-    // Firestore に保存
-    const saved: Card[] = cards.map((c, i) => ({
-      id: `card_${Date.now()}_${i}`,
-      name: c.name.trim(),
-      limit: Number(c.limit),
-      pointRate: Number(c.pointRate),
-      color: c.color,
-    }));
-    if (user) await saveUserCards(user.uid, saved as CardDoc[]);
-    setStep(3);
+    setSaving(true);
+    try {
+      const saved: Card[] = cards.map((c, i) => ({
+        id: `card_${Date.now()}_${i}`,
+        name: c.name.trim(),
+        limit: Number(c.limit),
+        pointRate: Number(c.pointRate),
+        color: c.color,
+      }));
+      if (user) {
+        await saveUserCards(user.uid, saved as CardDoc[]);
+      } else {
+        console.warn("[Onboarding] userがnullのためFirestore保存をスキップ");
+      }
+    } catch (e) {
+      console.error("[Onboarding] カード保存エラー:", e);
+    } finally {
+      setSaving(false);
+      setStep(3);
+    }
   };
 
   const handleComplete = () => {
@@ -354,15 +365,20 @@ export default function OnboardingPage() {
               <button
                 id="onboarding-next-btn"
                 onClick={validateAndNext}
+                disabled={saving}
                 style={{
                   flex: 1, padding: "13px 0", borderRadius: 10,
-                  border: "none", background: "linear-gradient(90deg, #1e40af, #3b82f6)",
+                  border: "none",
+                  background: saving
+                    ? "#94a3b8"
+                    : "linear-gradient(90deg, #1e40af, #3b82f6)",
                   color: "white", fontSize: 15, fontWeight: 700,
-                  cursor: "pointer", fontFamily: "inherit",
-                  boxShadow: "0 4px 12px rgba(30,64,175,0.3)",
+                  cursor: saving ? "not-allowed" : "pointer",
+                  fontFamily: "inherit",
+                  boxShadow: saving ? "none" : "0 4px 12px rgba(30,64,175,0.3)",
                 }}
               >
-                次へ →
+                {saving ? "保存中…" : "次へ →"}
               </button>
             </div>
           </div>
