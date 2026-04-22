@@ -2,8 +2,9 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { loadSettings, type UserSettings, defaultSettings } from "@/app/settings/page";
-import { loadCards, type Card } from "@/app/settings/page";
-import { getKakakuPrice } from "@/lib/firebase";
+import { type Card } from "@/app/settings/page";
+import { getKakakuPrice, loadUserCards, addUserPurchase } from "@/lib/firebase";
+import { useAuth } from "@/context/AuthContext";
 
 // ===== 価格.com URL生成 =====
 const SP = '\u3000'; // 全角スペース
@@ -62,34 +63,8 @@ const calcRealPrice = (basePrice: number, pointRate: number, coupon: number) =>
 const calcPointValue = (basePrice: number, pointRate: number) =>
   Math.round(basePrice * pointRate / 100);
 
-// ===== 購入記録 localStorage =====
-const PURCHASES_KEY = "otoquest_purchases";
-
-interface Purchase {
-  id: string;
-  productName: string;
-  price: number;
-  shop: string;
-  cardId: string;
-  purchasedAt: string; // "2026-04-16"
-  month: string;       // "2026-04"
-}
-
-function savePurchase(p: Purchase): void {
-  try {
-    const raw = localStorage.getItem(PURCHASES_KEY);
-    const list: Purchase[] = raw ? JSON.parse(raw) : [];
-    list.unshift(p);
-    localStorage.setItem(PURCHASES_KEY, JSON.stringify(list));
-  } catch { /* ignore */ }
-}
-
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
-}
-
-function monthStr(): string {
-  return new Date().toISOString().slice(0, 7);
 }
 
 /**
@@ -109,12 +84,12 @@ async function openKakakuUrl(keyword: string): Promise<void> {
 
 export default function ComparePage() {
   const router = useRouter();
+  const { user } = useAuth();
   const [settings, setSettings] = useState<UserSettings>(defaultSettings);
   const [keyword, setKeyword] = useState("");
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState("");
 
-  // 各ショップの表示価格（API取得 or 手動入力）
   const [rakutenPrice, setRakutenPrice] = useState<number | null>(null);
   const [rakutenUrl, setRakutenUrl] = useState("");
   const [yahooPrice, setYahooPrice] = useState<number | null>(null);
@@ -124,7 +99,6 @@ export default function ComparePage() {
   const [results, setResults] = useState<ShopResult[]>([]);
   const [searched, setSearched] = useState(false);
 
-  // ===== 購入記録ポップアップ用 state =====
   const [popup, setPopup] = useState<{
     open: boolean;
     productName: string;
@@ -138,10 +112,13 @@ export default function ComparePage() {
 
   useEffect(() => {
     setSettings(loadSettings());
-    const c = loadCards();
-    setCards(c);
-    if (c.length > 0) setSelectedCardId(c[0].id);
-  }, []);
+    if (user) {
+      loadUserCards(user.uid).then((docs) => {
+        setCards(docs as Card[]);
+        if (docs.length > 0) setSelectedCardId(docs[0].id);
+      });
+    }
+  }, [user]);
 
   // API検索
   const handleSearch = async () => {
@@ -486,9 +463,6 @@ export default function ComparePage() {
                               shopUrl: shopUrl ?? "",
                             });
                             setPopupPrice(r.realPrice);
-                            const c = loadCards();
-                            setCards(c);
-                            if (c.length > 0 && !selectedCardId) setSelectedCardId(c[0].id);
                           }}
                           style={{ whiteSpace: "nowrap", fontSize: 13 }}
                         >
@@ -615,15 +589,17 @@ export default function ComparePage() {
                 className="btn-primary"
                 style={{ fontSize: 14 }}
                 onClick={() => {
-                  savePurchase({
-                    id: `purchase_${Date.now()}`,
-                    productName: popup.productName,
-                    price: popupPrice,
-                    shop: popup.shop,
-                    cardId: selectedCardId,
-                    purchasedAt: todayStr(),
-                    month: monthStr(),
-                  });
+                  const cardName = cards.find((c) => c.id === selectedCardId)?.name ?? "—";
+                  if (user) {
+                    addUserPurchase(user.uid, {
+                      itemName: popup.productName,
+                      price: popup.price,
+                      realPrice: popupPrice,
+                      savedAmount: popup.price - popupPrice,
+                      cardName,
+                      shop: popup.shop,
+                    });
+                  }
                   setPopup(null);
                   window.open(popup.shopUrl, "_blank");
                 }}

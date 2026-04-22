@@ -1,26 +1,23 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
-import { getKakakuPrice, isStalePrice, type KakakuPrice } from "@/lib/firebase";
-import { config } from "@/lib/config";
+import { getKakakuPrice, isStalePrice, loadUserCards, addUserPurchase, type KakakuPrice } from "@/lib/firebase";
 import {
   enrichItem,
+  enrichItemWithLocalCards,
   rankItems,
   defaultUserCardNames,
   type EnrichedItem,
 } from "@/lib/realPrice";
+import { useAuth } from "@/context/AuthContext";
 
 import {
-  productSearchResults,
   creditCards,
   campaigns,
   frequentItems,
-  platformProfiles,
   sellerProfiles,
   physicalStores,
   storeEvents,
-  cardPlatformMatrix,
   getBestCardForPlatform,
-  calcOptimizedScore,
   type OptimizationMode,
 } from "@/lib/mockData";
 import { Search, ShieldCheck, ShieldAlert, ShieldX, Info, Star, ChevronRight, Truck, AlertTriangle, MapPin, Store } from "lucide-react";
@@ -30,10 +27,57 @@ const platformCampaignMap: Record<string, string[]> = {
   "Amazon":             ["プライムデー先行セール"],
   "Yahoo!ショッピング": ["PayPay春のポイント祭り"],
 };
-// 保有カード名リスト（creditCardsのactiveなものを使用）
-const userCardNames = creditCards
-  .filter((c) => c.status === "active" || c.status === "campaign")
-  .map((c) => c.name);
+
+// ========================================
+// ① 価格.com カテゴリ別 URLマップ
+// ========================================
+const KAKAKU_CATEGORY_URLS: { keywords: string[]; url: string }[] = [
+  {
+    keywords: ["マザーボード", "motherboard", "MB", "M/B"],
+    url: "https://kakaku.com/pc/motherboard/itemlist.aspx?pdf_Spec116=11&pdf_so=p1",
+  },
+  {
+    keywords: ["SSD", "ソリッドステート"],
+    url: "https://kakaku.com/pc/ssd/itemlist.aspx?pdf_so=p1",
+  },
+  {
+    keywords: ["メモリ", "memory", "RAM", "DDR4", "DDR5"],
+    url: "https://kakaku.com/pc/pc-memory/itemlist.aspx?pdf_so=p1",
+  },
+  {
+    keywords: ["CPU", "プロセッサ", "Ryzen", "Core i", "Core Ultra"],
+    url: "https://kakaku.com/pc/cpu/itemlist.aspx?pdf_so=p1",
+  },
+  {
+    keywords: ["GPU", "グラボ", "グラフィック", "RTX", "RX ", "GeForce", "Radeon"],
+    url: "https://kakaku.com/pc/videocard/itemlist.aspx?pdf_so=p1",
+  },
+];
+const KAKAKU_FALLBACK_URL = "https://kakaku.com/pc/";
+
+/** キーワードから価格.comカテゴリーページURLを取得 */
+function getKakakuCategoryUrl(keyword: string): string {
+  const lower = keyword.toLowerCase();
+  for (const entry of KAKAKU_CATEGORY_URLS) {
+    if (entry.keywords.some((k) => lower.includes(k.toLowerCase()))) {
+      return entry.url;
+    }
+  }
+  return KAKAKU_FALLBACK_URL;
+}
+
+// ========================================
+// ② 中古品・訳あり品除外フィルター
+// ========================================
+const USED_KEYWORDS = [
+  "中古", "訳あり", "ジャンク",
+  "used", "Used", "USED",
+  "再生品", "リファービッシュ", "refurbished",
+];
+
+function isUsedItem(itemName: string): boolean {
+  return USED_KEYWORDS.some((kw) => itemName.includes(kw));
+}
 
 const MODE_LABELS: Record<OptimizationMode, { label: string; icon: string; desc: string }> = {
   standard:     { label: "スタンダード",   icon: "⚖️", desc: "安全性・価格・ポイントをバランスよく評価" },
@@ -66,27 +110,7 @@ export default function SearchPage() {
   }, [kakakuPriceMap]);
 
   // ========================================
-  // APIモード切替（ランタイム）
-  // ========================================
-  const SESSION_MODE_KEY = "otoquest_use_real_api";
-  const [useRealApi, setUseRealApiState] = useState(config.useRealApi);
-
-  useEffect(() => {
-    const saved = sessionStorage.getItem(SESSION_MODE_KEY);
-    if (saved !== null) setUseRealApiState(saved === "true");
-  }, []);
-
-  const toggleApiMode = () => {
-    const next = !useRealApi;
-    setUseRealApiState(next);
-    sessionStorage.setItem(SESSION_MODE_KEY, String(next));
-    setCompareResults([]);
-    setLiveError("");
-    setLiveLoading(false);
-  };
-
-  // ========================================
-  // カード個別化（テスト用プリセット）
+  // カード個別化（localStorageのユーザーカードを使用）
   // ========================================
   const CARD_PRESETS: Record<string, string[]> = {
     "全カード（デフォルト）": defaultUserCardNames,
@@ -95,7 +119,28 @@ export default function SearchPage() {
     "カードなし": [],
   };
   const [cardPresetKey, setCardPresetKey] = useState("全カード（デフォルト）");
-  const userCards = CARD_PRESETS[cardPresetKey] ?? defaultUserCardNames;
+
+  // Firestoreからカード情報をロード
+  const { user } = useAuth();
+  const [userCardNamesFromStorage, setUserCardNamesFromStorage] = useState<string[]>(defaultUserCardNames);
+  const [allUserCardObjects, setAllUserCardObjects] = useState<{ name: string; pointRate: number }[]>([]);
+  useEffect(() => {
+    if (!user) return;
+    loadUserCards(user.uid).then((docs) => {
+      if (docs.length > 0) {
+        setUserCardNamesFromStorage(docs.map((c) => c.name));
+        setAllUserCardObjects(docs.map((c) => ({ name: c.name, pointRate: c.pointRate })));
+      }
+    });
+  }, [user]);
+
+  const userCards = cardPresetKey === "全カード（デフォルト）" ? userCardNamesFromStorage : (CARD_PRESETS[cardPresetKey] ?? userCardNamesFromStorage);
+  // enrichItemWithLocalCards用: プリセットに応じたカードオブジェクト
+  const activeCardObjects = cardPresetKey === "カードなし"
+    ? []
+    : cardPresetKey === "全カード（デフォルト）"
+      ? allUserCardObjects
+      : allUserCardObjects.filter((c) => userCards.includes(c.name));
 
   // ========================================
   // リアルAPI（楽天＋Yahoo 並列）
@@ -113,11 +158,11 @@ export default function SearchPage() {
     if (saved) setLiveAppId(saved);
   }, []);
 
-  // userCards変更時にリランク
+  // userCards / activeCardObjects 変更時にリランク
   useEffect(() => {
     if (compareResults.length === 0) return;
     setCompareResults((prev) =>
-      rankItems(prev.map((item) => enrichItem(item, item.source, userCards, item.couponDiscount)))
+      rankItems(prev.map((item) => enrichItemWithLocalCards(item, item.source, activeCardObjects, item.couponDiscount)))
     );
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardPresetKey]);
@@ -151,20 +196,24 @@ export default function SearchPage() {
       if (rakutenData.error) {
         errors.push(`楽天: ${rakutenData.hint ?? rakutenData.error}`);
       } else {
-        setRakutenTotal(rakutenData.total ?? 0);
-        const items = (rakutenData.results ?? []) as EnrichedItem[];
-        items.forEach((item) => {
-          allEnriched.push(enrichItem(item, "楽天市場", userCards));
+        const rawItems = (rakutenData.results ?? []) as EnrichedItem[];
+        // ② 中古品除外
+        const newItems = rawItems.filter((item) => !isUsedItem(item.itemName));
+        setRakutenTotal(rakutenData.total ?? newItems.length);
+        newItems.forEach((item) => {
+          allEnriched.push(enrichItemWithLocalCards(item, "楽天市場", activeCardObjects));
         });
       }
 
       if (yahooData.error) {
         errors.push(`Yahoo!: ${yahooData.error}`);
       } else {
-        setYahooTotal(yahooData.total ?? 0);
-        const items = (yahooData.results ?? []) as EnrichedItem[];
-        items.forEach((item) => {
-          allEnriched.push(enrichItem(item, "Yahoo!ショッピング", userCards));
+        const rawItems = (yahooData.results ?? []) as EnrichedItem[];
+        // ② 中古品除外
+        const newItems = rawItems.filter((item) => !isUsedItem(item.itemName));
+        setYahooTotal(yahooData.total ?? newItems.length);
+        newItems.forEach((item) => {
+          allEnriched.push(enrichItemWithLocalCards(item, "Yahoo!ショッピング", activeCardObjects));
         });
       }
 
@@ -181,14 +230,13 @@ export default function SearchPage() {
     }
   };
 
-  // 検索実行（モード分岐）
+  // 検索実行（リアルAPIのみ）
   const handleSearch = () => {
     setSearched(true);
-    if (useRealApi) searchBothApis(query);
+    searchBothApis(query);
+    // B-2: 価格.comデータをフェッチ
+    if (query.trim()) fetchKakakuPrice(query.trim());
   };
-
-  const results = productSearchResults(query);
-
   // 価格フィルター適用関数
   const inPriceRange = (price: number) => {
     const min = priceMin !== "" ? Number(priceMin) : null;
@@ -232,7 +280,7 @@ export default function SearchPage() {
 
   // マトリクスを使って最適カードを選択（28パターン対応）
   const getBestCard = (platform: string) => {
-    const result = getBestCardForPlatform(platform, userCardNames);
+    const result = getBestCardForPlatform(platform, userCards);
     if (!result) return null;
     const card = creditCards.find((c) => c.name === result.cardName);
     return card ? { ...card, matrixRate: result.rate } : null;
@@ -540,56 +588,8 @@ export default function SearchPage() {
             )}
           </div>
 
-          {/* APIモード ステータスバナー */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "8px 14px",
-              marginBottom: 0,
-              borderRadius: "10px 10px 0 0",
-              background: useRealApi ? "#fffbeb" : "#f0fdf4",
-              border: `1px solid ${useRealApi ? "#fde68a" : "#86efac"}`,
-              borderBottom: "none",
-            }}
-          >
-            {/* インジケーター */}
-            <span
-              style={{
-                display: "inline-block",
-                width: 8, height: 8,
-                borderRadius: "50%",
-                background: useRealApi ? "#f59e0b" : "#22c55e",
-                boxShadow: useRealApi ? "0 0 0 3px #fef3c740" : "0 0 0 3px #bbf7d080",
-              }}
-            />
-            <span style={{ fontSize: 12, fontWeight: 700, color: useRealApi ? "#92400e" : "#166534" }}>
-              {useRealApi ? "⚡ リアルAPIに接続中（楽天市場）" : "💾 モックデータ使用中（開発・テスト）"}
-            </span>
-            <span style={{ fontSize: 11, color: useRealApi ? "#d97706" : "#4ade80" }}>
-              {useRealApi
-                ? liveAppId ? `アプリID: ***（設定済み）` : "⚠️ アプリID未設定 → /api-test で入力してください"
-                : `env: NEXT_PUBLIC_USE_REAL_API=${String(config.useRealApi)}`}
-            </span>
-            <button
-              onClick={toggleApiMode}
-              style={{
-                marginLeft: "auto",
-                padding: "4px 12px", borderRadius: 20,
-                border: useRealApi ? "1px solid #fde68a" : "1px solid #86efac",
-                background: useRealApi ? "#fef3c7" : "#dcfce7",
-                color: useRealApi ? "#92400e" : "#166534",
-                fontSize: 11, fontWeight: 700,
-                cursor: "pointer", fontFamily: "inherit",
-              }}
-            >
-              {useRealApi ? "🔄 モックに切替" : "🔄 リアルAPIに切替"}
-            </button>
-          </div>
-
           {/* 検索バー */}
-          <div className="dq-card" style={{ padding: 14, marginBottom: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0, display: "flex", gap: 10, alignItems: "center" }}>
+          <div className="dq-card" style={{ padding: 14, marginBottom: 0, display: "flex", gap: 10, alignItems: "center" }}>
             <Search size={16} color="#1e40af" />
             <input
               className="dq-input"
@@ -623,9 +623,6 @@ export default function SearchPage() {
             style={{
               padding: "10px 14px",
               marginBottom: 12,
-              borderTop: "none",
-              borderTopLeftRadius: 0,
-              borderTopRightRadius: 0,
               background: activePriceFilter ? "#eff6ff" : "#fafafa",
               borderColor: activePriceFilter ? "#93c5fd" : "#e2e8f0",
               display: "flex",
@@ -721,333 +718,8 @@ export default function SearchPage() {
             </div>
           )}
 
-          {searched && results.map((product) => {
-            const scored = product.platforms.map((p) => {
-              const campaignExtra = getCampaignPoints(p.platform, p.price);
-              const totalPoints = p.points + campaignExtra;
-              // 出品者個別の信頼スコアを使用（プラットフォーム全体スコアより精密）
-              const sellerProfile = sellerProfiles[(p as { sellerKey?: string }).sellerKey ?? ""];
-              const effectiveTrustScore = sellerProfile
-                ? Math.min(p.trustScore, sellerProfile.sellerTrustScore)
-                : p.trustScore;
-              const opt = calcOptimizedScore(p.price, totalPoints, effectiveTrustScore, p.stock, p.platform, mode);
-              const profile = platformProfiles[p.platform];
-              const appCampaigns = campaignOn ? getApplicableCampaigns(p.platform) : [];
-              const bestCard = campaignOn ? getBestCard(p.platform) : null;
-              const excludedCampaigns = campaignOn
-                ? campaigns.filter(
-                    (c) => c.isCapped && (platformCampaignMap[p.platform] ?? []).includes(c.name)
-                  )
-                : [];
-              return { ...p, opt, profile, totalPoints, campaignExtra, appCampaigns, bestCard, excludedCampaigns, sellerProfile, effectiveTrustScore };
-            });
-
-
-            const sorted = [...scored].sort((a, b) => a.opt.score - b.opt.score);
-            const recommended = sorted[0];
-            const naiveBest = [...product.platforms].sort((a, b) => a.effectivePrice - b.effectivePrice)[0];
-            const rankChanged = recommended.platform !== naiveBest.platform;
-            const isFav = favorites.has(product.name) || favorites.has(query);
-
-            return (
-              <div key={product.id} className="dq-card" style={{ padding: 20, marginBottom: 16 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-                  <span style={{ fontSize: 32 }}>{product.image}</span>
-                  <div>
-                    <h2 style={{ fontSize: 15, fontWeight: 700, color: "#1e293b" }}>{product.name}</h2>
-                    <div style={{ fontSize: 11, color: "#64748b" }}>
-                      {product.platforms.length}サイト比較　MODE: {MODE_LABELS[mode].icon} {MODE_LABELS[mode].label}
-                    </div>
-                  </div>
-                  <div style={{ marginLeft: "auto", textAlign: "right" }}>
-                    <div style={{ fontSize: 11, color: "#64748b" }}>🏆 最適購入先</div>
-                    <div style={{ fontSize: 24, fontWeight: 900, color: "#059669" }}>
-                      ¥{recommended.opt.adjustedEffectivePrice.toLocaleString()}
-                      <span style={{ fontSize: 11, color: "#64748b", fontWeight: 400 }}>（実質）</span>
-                    </div>
-                    <div style={{ fontSize: 11, color: "#374151", fontWeight: 600 }}>{recommended.platform}</div>
-                  </div>
-                  <button
-                    onClick={() => toggleFavorite(product.name)}
-                    style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, color: isFav ? "#d97706" : "#cbd5e1" }}
-                    title="お気に入り"
-                  >★</button>
-                </div>
-
-                {rankChanged && (
-                  <div style={{ padding: "6px 12px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 7, marginBottom: 10, fontSize: 11, color: "#92400e" }}>
-                    📊 安全性・ポイント実質価値を考慮すると、単純最安値（{naiveBest.platform}）より <strong>{recommended.platform}</strong> が最適です
-                  </div>
-                )}
-
-                {/* 除外されたキャンペーン通知 */}
-                {campaignOn && scored.some((p) => p.excludedCampaigns.length > 0) && (
-                  <div style={{ padding: "6px 12px", background: "#fff1f2", border: "1px solid #fca5a5", borderRadius: 7, marginBottom: 10, fontSize: 11, color: "#9f1239" }}>
-                    🔴 この商品の一部キャンペーンはポイント上限到達のため計算から除外されました
-                  </div>
-                )}
-
-                <div style={{ overflowX: "auto" }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <thead>
-                      <tr style={{ borderBottom: "2px solid #f1f5f9" }}>
-                        {["プラットフォーム", "通常価格", "ポイント還元", campaignOn ? "キャンペーン" : null, "ポイント実質価値", "安全性", "在庫", "最適スコア"].filter(Boolean).map((h) => (
-                          <th key={h!} style={{ textAlign: "left", padding: "7px 8px", fontSize: 10, fontWeight: 700, color: "#64748b" }}>{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(() => {
-                        const filteredSorted = sorted.filter((p) => inPriceRange(p.price));
-                        const hiddenCount = sorted.length - filteredSorted.length;
-                        return (
-                          <>
-                            {filteredSorted.map((p, i) => {
-                              const isRec = i === 0;
-                              const opt = p.opt;
-                              const profile = p.profile;
-                              const usabilityColor = opt.usabilityRate >= 0.9 ? "#059669" :
-                                                     opt.usabilityRate >= 0.6 ? "#d97706" : "#dc2626";
-                              return (
-                                <tr
-                                  key={p.platform}
-                                  style={{
-                                    background: opt.verdict === "avoid" ? "#fff5f5" : isRec ? "#f0fdf4" : i % 2 === 0 ? "#fafafa" : "white",
-                                    border: isRec ? "1px solid #86efac" : opt.verdict === "avoid" ? "1px solid #fca5a5" : "none",
-                                    opacity: opt.verdict === "avoid" ? 0.75 : 1,
-                                  }}
-                                >
-
-                            <td style={{ padding: "9px 8px" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                                {isRec && <span>👑</span>}
-                                <span style={{ fontSize: 12, fontWeight: isRec ? 700 : 400, color: isRec ? "#065f46" : "#374151" }}>
-                                  {p.platform}
-                                </span>
-                              </div>
-                              {/* 出品者名 + 種別バッジ */}
-                              {p.sellerProfile && (
-                                <div style={{ marginTop: 2, display: "flex", alignItems: "center", gap: 4 }}>
-                                  <span style={{ fontSize: 10, color: "#64748b" }}>{p.sellerProfile.name}</span>
-                                  <span style={{
-                                    fontSize: 9, padding: "1px 4px", borderRadius: 3, fontWeight: 600,
-                                    background: p.sellerProfile.sellerType === "official" ? "#dcfce7" :
-                                               p.sellerProfile.sellerType === "retail" ? "#dbeafe" : "#fef3c7",
-                                    color: p.sellerProfile.sellerType === "official" ? "#166534" :
-                                           p.sellerProfile.sellerType === "retail" ? "#1e40af" : "#92400e",
-                                  }}>
-                                    {p.sellerProfile.sellerType === "official" ? "公式" :
-                                     p.sellerProfile.sellerType === "retail" ? "大手量販" : "マーケット"}
-                                  </span>
-                                </div>
-                              )}
-                              {opt.verdict !== "recommended" && (
-                                <span className={opt.verdict === "avoid" ? "badge-red" : "badge-yellow"} style={{ fontSize: 9, marginTop: 2, display: "inline-block" }}>
-                                  {opt.verdictReason}
-                                </span>
-                              )}
-                              {profile?.category === "rarely_used" && (
-                                <div style={{ fontSize: 9, color: "#dc2626", marginTop: 2 }}>
-                                  🔴 年{profile.purchasesPerYear}回利用
-                                </div>
-                              )}
-                              {p.appCampaigns?.map((c) => (
-                                <span key={c.name} className="badge-yellow" style={{ display: "inline-block", marginTop: 2, fontSize: 9 }}>
-                                  🎯 {c.name}
-                                </span>
-                              ))}
-                              {p.excludedCampaigns.map((c) => (
-                                <span key={c.name} className="badge-red" style={{ display: "inline-block", marginTop: 2, fontSize: 9 }}>
-                                  🚫 {c.name}（上限）
-                                </span>
-                              ))}
-                            </td>
-                            <td style={{ padding: "9px 8px", fontSize: 12, color: "#374151" }}>¥{p.price.toLocaleString()}</td>
-                            <td style={{ padding: "9px 8px", fontSize: 11, color: "#d97706" }}>+{p.points.toLocaleString()}pt ({p.pointRate}%)</td>
-                            {campaignOn && (
-                              <td style={{ padding: "9px 8px", fontSize: 11 }}>
-                                {p.campaignExtra > 0 ? (
-                                  <div>
-                                    <span style={{ color: "#dc2626", fontWeight: 700 }}>+{p.campaignExtra.toLocaleString()}pt</span>
-                                    {p.bestCard && <div style={{ fontSize: 9, color: "#1d4ed8" }}>{p.bestCard.name}</div>}
-                                  </div>
-                                ) : <span style={{ color: "#94a3b8" }}>—</span>}
-                              </td>
-                            )}
-                            <td style={{ padding: "9px 8px" }}>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: "#059669" }}>-¥{opt.pointRealValue.toLocaleString()}</div>
-                              <div style={{ fontSize: 9, color: usabilityColor }}>
-                                実質 {Math.round(opt.usabilityRate * 100)}% ({profile?.pointCurrency ?? "pt"})
-                              </div>
-                              <div style={{ width: 40, height: 3, background: "#f1f5f9", borderRadius: 2, marginTop: 2 }}>
-                                <div style={{ width: `${opt.usabilityRate * 100}%`, height: "100%", background: usabilityColor, borderRadius: 2 }} />
-                              </div>
-                            </td>
-                            {/* 安全性（プラットフォーム + 出品者個別） */}
-                            <td style={{ padding: "9px 8px" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                                {p.effectiveTrustScore >= 85 ? <ShieldCheck size={12} color="#059669" /> :
-                                 p.effectiveTrustScore >= 70 ? <ShieldAlert size={12} color="#d97706" /> :
-                                 <ShieldX size={12} color="#dc2626" />}
-                                <span style={{ fontSize: 12, fontWeight: 700, color: p.effectiveTrustScore >= 85 ? "#059669" : p.effectiveTrustScore >= 70 ? "#d97706" : "#dc2626" }}>
-                                  {p.effectiveTrustScore}
-                                </span>
-                              </div>
-                              {/* 出品者配送実績 */}
-                              {p.sellerProfile && (
-                                <div style={{ marginTop: 3 }}>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 9 }}>
-                                    <Truck size={9} color={p.sellerProfile.deliveryDelayRate > 15 ? "#dc2626" : "#64748b"} />
-                                    <span style={{ color: p.sellerProfile.deliveryDelayRate > 15 ? "#dc2626" : p.sellerProfile.deliveryDelayRate > 5 ? "#d97706" : "#64748b" }}>
-                                      遅延{p.sellerProfile.deliveryDelayRate}%
-                                    </span>
-                                  </div>
-                                  {p.sellerProfile.missingRate > 1 && (
-                                    <div style={{ fontSize: 9, color: "#dc2626" }}>
-                                      不着{p.sellerProfile.missingRate}%
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                              {opt.safetyPenalty > 0 && <div style={{ fontSize: 9, color: "#dc2626" }}>+¥{opt.safetyPenalty.toLocaleString()}</div>}
-                              {/* 危険フラグ一覧（danger業者のみ展開表示） */}
-                              {p.sellerProfile?.verdict === "danger" && (
-                                <div style={{ marginTop: 4, padding: "4px 6px", background: "#fff1f2", borderRadius: 4, border: "1px solid #fca5a5" }}>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 3, marginBottom: 3 }}>
-                                    <AlertTriangle size={9} color="#dc2626" />
-                                    <span style={{ fontSize: 9, fontWeight: 700, color: "#dc2626" }}>危険業者フラグ</span>
-                                  </div>
-                                  {p.sellerProfile.flags.slice(0, 3).map((f, fi) => (
-                                    <div key={fi} style={{ fontSize: 9, color: "#9f1239", marginBottom: 1 }}>• {f}</div>
-                                  ))}
-                                </div>
-                              )}
-                              {p.sellerProfile?.verdict === "caution" && p.sellerProfile.flags.length > 0 && (
-                                <div style={{ marginTop: 4, padding: "3px 6px", background: "#fffbeb", borderRadius: 4, border: "1px solid #fde68a" }}>
-                                  {p.sellerProfile.flags.map((f, fi) => (
-                                    <div key={fi} style={{ fontSize: 9, color: "#92400e" }}>• {f}</div>
-                                  ))}
-                                </div>
-                              )}
-                            </td>
-                            <td style={{ padding: "9px 8px" }}>
-                              <div style={{ fontSize: 11, color: p.stock === "在庫あり" ? "#059669" : p.stock === "残りわずか" ? "#d97706" : "#dc2626", fontWeight: 600 }}>{p.stock}</div>
-                              {opt.stockPenalty > 0 && <div style={{ fontSize: 9, color: "#d97706" }}>+¥{opt.stockPenalty.toLocaleString()}</div>}
-                            </td>
-                            <td style={{ padding: "9px 8px", textAlign: "right" }}>
-                              <div style={{ fontSize: 15, fontWeight: 900, color: isRec ? "#1e40af" : "#374151" }}>¥{opt.score.toLocaleString()}</div>
-                              <div style={{ fontSize: 9, color: "#94a3b8" }}>{isRec ? "✅ 最推奨" : `${i + 1}位`}</div>
-                            </td>
-                            </tr>
-                              );
-                            })}
-                            {hiddenCount > 0 && (
-                              <tr>
-                                <td colSpan={7} style={{ padding: "8px", textAlign: "center", fontSize: 11, color: "#94a3b8", background: "#f8fafc" }}>
-                                  💴 価格フィルターにより{hiddenCount}件を非表示（¥{priceMin ? Number(priceMin).toLocaleString() : "0"}〜{priceMax ? "¥" + Number(priceMax).toLocaleString() : "上限なし"}の範囲外）
-                                </td>
-                              </tr>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-                  <button className="btn-primary" style={{ fontSize: 13 }}>
-                    ✨ {recommended.platform}で購入
-                  </button>
-                  <button
-                    onClick={() => setCampaignOn(!campaignOn)}
-                    style={{
-                      padding: "10px 14px", borderRadius: 8,
-                      border: campaignOn ? "2px solid #1e40af" : "1px solid #e2e8f0",
-                      background: campaignOn ? "#eff6ff" : "white",
-                      color: campaignOn ? "#1e40af" : "#374151",
-                      fontWeight: campaignOn ? 700 : 400, fontSize: 13,
-                      cursor: "pointer", fontFamily: "inherit",
-                    }}
-                  >
-                    🎯 {campaignOn ? "キャンペーン込みON" : "キャンペーン込み"}
-                  </button>
-                </div>
-
-                {/* ===== 価格.com参考価格セクション ===== */}
-                {(() => {
-                  // Firestoreフェッチをトリガー
-                  if (kakakuPriceMap[product.name] === undefined) {
-                    fetchKakakuPrice(product.name);
-                  }
-                  const kp = kakakuPriceMap[product.name];
-                  if (!kp) return null; // 未設定またはマッチなし
-                  const stale = isStalePrice(kp.fetchedAt);
-                  return (
-                    <div
-                      style={{
-                        marginTop: 12,
-                        padding: "10px 14px",
-                        background: "#fffbeb",
-                        border: "1px solid #f59e0b",
-                        borderRadius: 8,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 12,
-                        flexWrap: "wrap",
-                      }}
-                    >
-                      <span style={{ fontSize: 13 }}>📋</span>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: "#92400e", marginBottom: 2 }}>
-                          価格.com参考最安値
-                        </div>
-                        <div style={{ display: "flex", gap: 14, alignItems: "baseline", flexWrap: "wrap" }}>
-                          <span style={{ fontSize: 18, fontWeight: 900, color: "#b45309" }}>
-                            ¥{kp.minPrice.toLocaleString()}
-                          </span>
-                          <span style={{ fontSize: 11, color: "#78350f" }}>
-                            {kp.shopName}
-                          </span>
-                          <span style={{ fontSize: 10, color: "#92400e" }}>
-                            取得日: {kp.fetchedAt}
-                          </span>
-                          {kp.notes && (
-                            <span style={{ fontSize: 10, color: "#64748b" }}>{kp.notes}</span>
-                          )}
-                        </div>
-                        {stale && (
-                          <div style={{ fontSize: 10, color: "#dc2626", marginTop: 3 }}>
-                            ⚠️ ※価格は古い可能性があります
-                          </div>
-                        )}
-                      </div>
-                      <a
-                        href={kp.kakakuUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 700,
-                          color: "#b45309",
-                          background: "#fef3c7",
-                          border: "1px solid #f59e0b",
-                          padding: "5px 10px",
-                          borderRadius: 6,
-                          textDecoration: "none",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        詳細を見る ↗
-                      </a>
-                    </div>
-                  );
-                })()}
-              </div>
-            );
-          })}
           {/* ========== リアルAPI 楽天+Yahoo 実質価格比較パネル ========== */}
-          {useRealApi && searched && (
+          {searched && (
             <div style={{ marginTop: 16 }}>
               {/* ヘッダー */}
               <div style={{
@@ -1236,12 +908,47 @@ export default function SearchPage() {
                                   </td>
                                   {/* 実質価格 */}
                                   <td style={{ padding: "10px 12px", textAlign: "right" }}>
+                                    {/* 実質価格 */}
                                     <div style={{ fontSize: 16, fontWeight: 900, color: isTop ? "#059669" : "#374151" }}>
                                       ¥{item.realPrice.toLocaleString()}
                                     </div>
+                                    {/* 節約額 */}
+                                    {item.price > item.realPrice && (
+                                      <div style={{ fontSize: 10, color: "#059669", fontWeight: 600 }}>
+                                        節約 ¥{(item.price - item.realPrice).toLocaleString()} お得
+                                      </div>
+                                    )}
                                     {isTop && (
                                       <div style={{ fontSize: 9, color: "#059669", fontWeight: 700 }}>✅ 最安</div>
                                     )}
+                                    {/* B-2: 価格.com差額バッジ */}
+                                    {(() => {
+                                      const kp = kakakuPriceMap[query.trim()];
+                                      if (!kp) return null;
+                                      const diff = item.realPrice - kp.minPrice;
+                                      if (diff < 0) {
+                                        return (
+                                          <div style={{
+                                            marginTop: 4, padding: "2px 6px", borderRadius: 4,
+                                            background: "#d1fae5", border: "1px solid #6ee7b7",
+                                            fontSize: 9, fontWeight: 700, color: "#065f46",
+                                          }}>
+                                            価格.com最安より¥{Math.abs(diff).toLocaleString()} 安い！
+                                          </div>
+                                        );
+                                      } else if (diff > 0) {
+                                        return (
+                                          <div style={{
+                                            marginTop: 4, padding: "2px 6px", borderRadius: 4,
+                                            background: "#fef3c7", border: "1px solid #fde68a",
+                                            fontSize: 9, color: "#92400e",
+                                          }}>
+                                            価格.com最安より¥{diff.toLocaleString()} 割高
+                                          </div>
+                                        );
+                                      }
+                                      return null;
+                                    })()}
                                     <a href={item.url} target="_blank" rel="noopener noreferrer"
                                       style={{
                                         display: "inline-block", marginTop: 4,
@@ -1253,6 +960,31 @@ export default function SearchPage() {
                                     >
                                       {item.source === "楽天市場" ? "楽天で見る" : "Yahoo!で見る"}
                                     </a>
+                                    {/* 購入記録ボタン */}
+                                    {user && (
+                                      <button
+                                        onClick={() => {
+                                          addUserPurchase(user.uid, {
+                                            itemName: item.itemName,
+                                            price: item.price,
+                                            realPrice: item.realPrice,
+                                            savedAmount: item.price - item.realPrice,
+                                            cardName: item.cardName ?? "—",
+                                            shop: item.source,
+                                          }).then(() => alert(`📝 購入記録に追加しました\n${item.itemName}`));
+                                        }}
+                                        style={{
+                                          display: "block", marginTop: 4,
+                                          padding: "3px 10px", borderRadius: 5,
+                                          border: "1px solid #e2e8f0",
+                                          background: "white", color: "#374151",
+                                          fontSize: 10, fontWeight: 600,
+                                          cursor: "pointer", fontFamily: "inherit",
+                                        }}
+                                      >
+                                        📝 購入記録
+                                      </button>
+                                    )}
                                   </td>
                                 </tr>
                               );
@@ -1262,9 +994,28 @@ export default function SearchPage() {
                       </div>
 
                       {/* 計算式の説明 */}
-                      <div style={{ padding: "8px 16px", background: "#f8fafc", borderTop: "1px solid #e2e8f0", fontSize: 10, color: "#94a3b8" }}>
-                        💡 実質価格 = 表示価格 − クーポン割引 − floor(価格 × ポイント還元率 × ポイント利用頻度)
-                        　カード追加還元は合計還元率に加算済み。楽天利用頻度100%・Yahoo70%で計算。
+                      <div style={{ padding: "8px 16px", background: "#f8fafc", borderTop: "1px solid #e2e8f0", fontSize: 10, color: "#94a3b8", display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                        <span>💡 実質価格 = 表示価格 − floor(価格 × 合計還元率 × ポイント利用頻度)　※ 合計還元率 = プラットフォーム還元 + カード還元率（SPU込み）　🚫 中古・訳あり・ジャンク品は自動除外</span>
+                        {kakakuPriceMap[query.trim()] && (
+                          <span style={{ color: "#b45309" }}>
+                            📋 価格.com参考最安値: ¥{kakakuPriceMap[query.trim()]!.minPrice.toLocaleString()}（{kakakuPriceMap[query.trim()]!.shopName}）
+                            {isStalePrice(kakakuPriceMap[query.trim()]!.fetchedAt) && "　⚠️ 古い情報の可能性あり"}
+                          </span>
+                        )}
+                        {/* ① 価格.comカテゴリ別最安一覧リンク */}
+                        <a
+                          href={getKakakuCategoryUrl(query.trim())}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{
+                            padding: "2px 8px", borderRadius: 4,
+                            background: "#fef3c7", border: "1px solid #fde68a",
+                            color: "#92400e", fontSize: 10, fontWeight: 700,
+                            textDecoration: "none", whiteSpace: "nowrap",
+                          }}
+                        >
+                          📋 価格.com最安順で見る →
+                        </a>
                       </div>
                     </div>
                   );

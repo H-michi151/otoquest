@@ -102,17 +102,66 @@ export function enrichItem(
 }
 
 /**
+ * localStorageのCard（pointRate = SPU込み実効還元率）を使った実質価格計算
+ *
+ * B-1対応: cardPlatformMatrix を参照せず、登録カードのpointRateを
+ * そのまま実効還元率として使用する。
+ *   楽天: pointRate = 基本還元率 × SPU倍率の合計（ユーザーが入力）
+ *   Yahoo: pointRate = 基本還元率のみ（SPU適用なし）
+ */
+export function enrichItemWithLocalCards(
+  item: ApiItem,
+  source: "楽天市場" | "Yahoo!ショッピング",
+  userCardObjects: { name: string; pointRate: number }[],
+  couponDiscount = 0
+): EnrichedItem {
+  // pointRate最大のカードを選択
+  let bestCard = { name: "（カードなし）", rate: 0 };
+  for (const card of userCardObjects) {
+    if (card.pointRate > bestCard.rate) {
+      bestCard = { name: card.name, rate: card.pointRate };
+    }
+  }
+
+  const profile = platformProfiles[source];
+  const usabilityRate = profile?.usabilityRate ?? 0.8;
+
+  // APIから得たプラットフォーム還元率（%換算）
+  const platformRatePct =
+    source === "Yahoo!ショッピング"
+      ? (item.point_rate - 1) * 100   // 倍率 → %（例: 2倍 → 1%）
+      : item.point_rate;               // 楽天はそのまま %
+
+  // カードのpointRateは実効還元率なのでそのまま加算
+  const totalRate = platformRatePct + bestCard.rate;
+  const pointValue = Math.floor(item.price * totalRate / 100 * usabilityRate);
+  const realPrice = item.price - couponDiscount - pointValue;
+
+  return {
+    ...item,
+    source,
+    couponDiscount,
+    cardName: bestCard.name,
+    cardRate: bestCard.rate,
+    totalRate,
+    usabilityRate,
+    pointValue,
+    realPrice,
+  };
+}
+
+/**
  * EnrichedItem のリストをソートして順位をつける
  *
- * 優先順位:
- *   1位：実質価格が最安
- *   同率（±100円以内）の場合：カード還元率が高い方を優先
+ * 優先順位（③ 厳密化済み）:
+ *   1位：実質価格が安い順（絶対条件・1円でも差があれば安い方が上位）
+ *   同額（±0円）の場合のみ：実効還元率が高い方を優先
  */
 export function rankItems(items: EnrichedItem[]): EnrichedItem[] {
   return [...items].sort((a, b) => {
     const diff = a.realPrice - b.realPrice;
-    if (Math.abs(diff) <= 100) {
-      // 同等価格：カード還元率の高い方を優先
+    if (diff === 0) {
+      // 完全同額のみ実効還元率（cardRate）で決定
       return b.cardRate - a.cardRate;
     }
     return diff;

@@ -1,9 +1,10 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import { loadUserCards, saveUserCards, type CardDoc } from "@/lib/firebase";
 
 const STORAGE_KEY = "otoquest_user_settings";
-const CARDS_STORAGE_KEY = "otoquest_cards";
 
 export interface UserSettings {
   budget: number;
@@ -21,11 +22,6 @@ export interface Card {
   pointRate: number;
   color: string;
 }
-
-const DEFAULT_CARDS: Card[] = [
-  { id: "rakuten_gold", name: "楽天カードゴールド", limit: 500000, pointRate: 3, color: "#bf0000" },
-  { id: "paypay_gold", name: "PayPayカードゴールド", limit: 300000, pointRate: 2, color: "#ff0033" },
-];
 
 export const defaultSettings: UserSettings = {
   budget: 30000,
@@ -50,29 +46,35 @@ export function saveSettings(s: UserSettings): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
 }
 
-export function loadCards(): Card[] {
-  if (typeof window === "undefined") return DEFAULT_CARDS;
-  try {
-    const raw = localStorage.getItem(CARDS_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : DEFAULT_CARDS;
-  } catch {
-    return DEFAULT_CARDS;
-  }
-}
-
-export function saveCards(cards: Card[]): void {
-  localStorage.setItem(CARDS_STORAGE_KEY, JSON.stringify(cards));
-}
-
 const BLANK_CARD: Omit<Card, "id"> = { name: "", limit: 0, pointRate: 1, color: "#1e40af" };
+
+/** カード名に応じた還元率確認リンク */
+function getCardConfirmLink(name: string): { label: string; url: string; note: string } | null {
+  if (name.includes("楽天")) {
+    return {
+      label: "楽天SPU現在倍率を確認",
+      url: "https://member.rakuten.co.jp/rakuten/spu/",
+      note: "ログイン後、現在の倍率を確認して入力してください",
+    };
+  }
+  if (name.includes("PayPay") || name.includes("Yahoo")) {
+    return {
+      label: "PayPayポイント還元率を確認",
+      url: "https://shopping.yahoo.co.jp/promotion/campaign/",
+      note: "ログイン後、現在の還元率を確認して入力してください",
+    };
+  }
+  return null;
+}
 
 export default function SettingsPage() {
   const router = useRouter();
+  const { user } = useAuth();
   const [settings, setSettings] = useState<UserSettings>(defaultSettings);
   const [saved, setSaved] = useState(false);
 
   // カード管理 state
-  const [cards, setCards] = useState<Card[]>(DEFAULT_CARDS);
+  const [cards, setCards] = useState<Card[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Omit<Card, "id">>(BLANK_CARD);
   const [showAdd, setShowAdd] = useState(false);
@@ -80,8 +82,10 @@ export default function SettingsPage() {
 
   useEffect(() => {
     setSettings(loadSettings());
-    setCards(loadCards());
-  }, []);
+    if (user) {
+      loadUserCards(user.uid).then((docs) => setCards(docs as Card[]));
+    }
+  }, [user]);
 
   const set = <K extends keyof UserSettings>(k: K, v: UserSettings[K]) =>
     setSettings((prev) => ({ ...prev, [k]: v }));
@@ -95,10 +99,14 @@ export default function SettingsPage() {
   };
 
   // ===== カード操作 =====
+  const persistCards = (next: Card[]) => {
+    if (user) saveUserCards(user.uid, next as CardDoc[]);
+  };
+
   const handleDeleteCard = (id: string) => {
     const next = cards.filter((c) => c.id !== id);
     setCards(next);
-    saveCards(next);
+    persistCards(next);
   };
 
   const handleStartEdit = (card: Card) => {
@@ -113,7 +121,7 @@ export default function SettingsPage() {
       c.id === editingId ? { ...c, ...editForm } : c
     );
     setCards(next);
-    saveCards(next);
+    persistCards(next);
     setEditingId(null);
   };
 
@@ -122,7 +130,7 @@ export default function SettingsPage() {
     const newCard: Card = { id: `card_${Date.now()}`, ...addForm };
     const next = [...cards, newCard];
     setCards(next);
-    saveCards(next);
+    persistCards(next);
     setAddForm(BLANK_CARD);
     setShowAdd(false);
   };
@@ -325,6 +333,19 @@ export default function SettingsPage() {
                   onChange={(e) => setAddForm((p) => ({ ...p, pointRate: Number(e.target.value) }))}
                   style={inputStyle}
                 />
+                {(() => {
+                  const link = getCardConfirmLink(addForm.name);
+                  if (!link) return null;
+                  return (
+                    <div style={{ marginTop: 5 }}>
+                      <a href={link.url} target="_blank" rel="noopener noreferrer"
+                        style={{ fontSize: 11, color: "#1e40af", textDecoration: "underline" }}>
+                        🔗 {link.label}
+                      </a>
+                      <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>{link.note}</div>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
@@ -382,6 +403,19 @@ export default function SettingsPage() {
                           onChange={(e) => setEditForm((p) => ({ ...p, pointRate: Number(e.target.value) }))}
                           style={inputStyle}
                         />
+                        {(() => {
+                          const link = getCardConfirmLink(editForm.name);
+                          if (!link) return null;
+                          return (
+                            <div style={{ marginTop: 5 }}>
+                              <a href={link.url} target="_blank" rel="noopener noreferrer"
+                                style={{ fontSize: 11, color: "#1e40af", textDecoration: "underline" }}>
+                                🔗 {link.label}
+                              </a>
+                              <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>{link.note}</div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                     <div style={{ display: "flex", gap: 8 }}>
@@ -451,6 +485,41 @@ export default function SettingsPage() {
           💾 保存して価格比較へ →
         </button>
       )}
+
+      {/* ④ データリセット */}
+      <div className="dq-card" style={{ padding: 20, marginTop: 24, border: "1px solid #fca5a5", background: "#fff5f5" }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#dc2626", marginBottom: 6 }}>
+          ⚠️ 危険ゾーン
+        </div>
+        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 14 }}>
+          アプリのすべてのデータ（カード設定・購入履歴・オンボーディング状態）を削除して初期状態に戻します。この操作は取り消せません。
+        </div>
+        <button
+          id="reset-app-data-btn"
+          onClick={() => {
+            const ok = window.confirm(
+              "すべてのデータを削除してオンボーディングからやり直します。よろしいですか？"
+            );
+            if (!ok) return;
+            // otoquest_ プレフィックスのキーをすべて削除
+            const keysToRemove: string[] = [];
+            for (let i = 0; i < localStorage.length; i++) {
+              const key = localStorage.key(i);
+              if (key && key.startsWith("otoquest_")) keysToRemove.push(key);
+            }
+            keysToRemove.forEach((k) => localStorage.removeItem(k));
+            router.push("/onboarding");
+          }}
+          style={{
+            padding: "10px 20px", borderRadius: 8,
+            border: "1px solid #dc2626", background: "white",
+            color: "#dc2626", fontWeight: 700, fontSize: 13,
+            cursor: "pointer", fontFamily: "inherit",
+          }}
+        >
+          🗑️ アプリデータをリセット
+        </button>
+      </div>
     </div>
   );
 }

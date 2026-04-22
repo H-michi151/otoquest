@@ -7,6 +7,7 @@
 
 import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
 import { getFirestore, type Firestore } from "firebase/firestore";
+import { getAuth, GoogleAuthProvider, type Auth } from "firebase/auth";
 
 const firebaseConfig = {
   apiKey:            process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -23,15 +24,18 @@ const isConfigured =
 
 let app: FirebaseApp | null = null;
 let db: Firestore | null = null;
+let auth: Auth | null = null;
 
 if (isConfigured) {
   app = getApps().length === 0
     ? initializeApp(firebaseConfig)
     : getApps()[0];
   db = getFirestore(app);
+  auth = getAuth(app);
 }
 
-export { db, isConfigured };
+export const googleProvider = new GoogleAuthProvider();
+export { db, auth, isConfigured };
 
 // ===== kakaku_prices ドキュメント型 =====
 export interface KakakuPrice {
@@ -80,4 +84,71 @@ export function isStalePrice(fetchedAt: string): boolean {
   } catch {
     return false;
   }
+}
+
+// ===== ユーザーカード（Firestore）=====
+export type CardDoc = {
+  id: string; name: string; limit: number; pointRate: number; color: string;
+};
+
+export async function loadUserCards(uid: string): Promise<CardDoc[]> {
+  if (!db) return [];
+  try {
+    const { collection, getDocs, orderBy, query } = await import("firebase/firestore");
+    const q = query(collection(db, `users/${uid}/cards`), orderBy("createdAt", "asc"));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => {
+      const { createdAt: _c, ...rest } = d.data();
+      return rest as CardDoc;
+    });
+  } catch (e) { console.warn("[cards] read error:", e); return []; }
+}
+
+export async function saveUserCards(uid: string, cards: CardDoc[]): Promise<void> {
+  if (!db) return;
+  try {
+    const { collection, doc, setDoc, deleteDoc, getDocs, Timestamp } = await import("firebase/firestore");
+    const colRef = collection(db, `users/${uid}/cards`);
+    const existing = await getDocs(colRef);
+    await Promise.all(existing.docs.map((d) => deleteDoc(d.ref)));
+    await Promise.all(cards.map((c) =>
+      setDoc(doc(colRef, c.id), { ...c, createdAt: Timestamp.now() })
+    ));
+  } catch (e) { console.warn("[cards] write error:", e); }
+}
+
+// ===== 購入履歴（Firestore）=====
+export type PurchaseDoc = {
+  id: string; itemName: string; price: number; realPrice: number;
+  savedAmount: number; cardName: string; shop: string; purchasedAt: string;
+};
+
+export async function loadUserPurchases(uid: string): Promise<PurchaseDoc[]> {
+  if (!db) return [];
+  try {
+    const { collection, getDocs, orderBy, query } = await import("firebase/firestore");
+    const q = query(collection(db, `users/${uid}/purchases`), orderBy("purchasedAt", "desc"));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => {
+      const data = d.data();
+      const purchasedAt = typeof data.purchasedAt?.toDate === "function"
+        ? data.purchasedAt.toDate().toISOString()
+        : String(data.purchasedAt ?? "");
+      return { ...data, purchasedAt } as PurchaseDoc;
+    });
+  } catch (e) { console.warn("[purchases] read error:", e); return []; }
+}
+
+export async function addUserPurchase(
+  uid: string,
+  purchase: Omit<PurchaseDoc, "id" | "purchasedAt">
+): Promise<void> {
+  if (!db) return;
+  try {
+    const { collection, doc, setDoc, Timestamp } = await import("firebase/firestore");
+    const id = `purchase_${Date.now()}`;
+    await setDoc(doc(collection(db, `users/${uid}/purchases`), id), {
+      ...purchase, id, purchasedAt: Timestamp.now(),
+    });
+  } catch (e) { console.warn("[purchases] write error:", e); }
 }
