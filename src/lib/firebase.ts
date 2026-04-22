@@ -105,16 +105,21 @@ export async function loadUserCards(uid: string): Promise<CardDoc[]> {
 }
 
 export async function saveUserCards(uid: string, cards: CardDoc[]): Promise<void> {
-  if (!db) return;
-  try {
+  if (!db) { console.warn("[cards] db is null"); return; }
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("saveUserCards timeout")), 8000)
+  );
+  const write = (async () => {
     const { collection, doc, setDoc, deleteDoc, getDocs, Timestamp } = await import("firebase/firestore");
-    const colRef = collection(db, `users/${uid}/cards`);
+    const colRef = collection(db!, `users/${uid}/cards`);
     const existing = await getDocs(colRef);
     await Promise.all(existing.docs.map((d) => deleteDoc(d.ref)));
     await Promise.all(cards.map((c) =>
       setDoc(doc(colRef, c.id), { ...c, createdAt: Timestamp.now() })
     ));
-  } catch (e) { console.warn("[cards] write error:", e); }
+  })();
+  // タイムアウトか完了か先に来た方で解決（エラーは呼び出し元に伝播）
+  await Promise.race([write, timeout]);
 }
 
 // ===== 購入履歴（Firestore）=====
