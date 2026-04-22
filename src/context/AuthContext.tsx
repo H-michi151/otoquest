@@ -8,7 +8,7 @@ import {
 } from "react";
 import {
   onAuthStateChanged,
-  signInWithPopup,
+  signInWithRedirect,
   signOut as firebaseSignOut,
   type User,
 } from "firebase/auth";
@@ -53,7 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      await signInWithPopup(auth, googleProvider);
+      await signInWithRedirect(auth, googleProvider);
     } catch (e) {
       console.error("[AuthContext] Google ログインエラー:", e);
     }

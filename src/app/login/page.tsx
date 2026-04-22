@@ -1,26 +1,55 @@
 "use client";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 
 export default function LoginPage() {
   const { user, loading, signInWithGoogle } = useAuth();
   const router = useRouter();
+  const [redirectChecking, setRedirectChecking] = useState(true);
+
+  // リダイレクト方式: ページロード時に getRedirectResult を処理
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { getRedirectResult } = await import("firebase/auth");
+        const { auth } = await import("@/lib/firebase");
+        if (auth) {
+          const result = await getRedirectResult(auth);
+          if (result?.user && !cancelled) {
+            console.log("[Login] リダイレクトログイン成功:", result.user.email);
+          }
+        }
+      } catch (e) {
+        console.error("[Login] getRedirectResult エラー:", e);
+      } finally {
+        if (!cancelled) setRedirectChecking(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // ログイン済みなら /search へリダイレクト
   useEffect(() => {
-    if (!loading && user) {
+    if (!loading && !redirectChecking && user) {
       router.replace("/search");
     }
-  }, [user, loading, router]);
+  }, [user, loading, redirectChecking, router]);
 
   const handleLogin = async () => {
+    console.log("[Login] Googleログイン開始（リダイレクト方式）");
+    const { auth } = await import("@/lib/firebase");
+    if (!auth) {
+      alert("設定エラー: Firebase が初期化できていません。\nVercel の環境変数を確認してください。");
+      return;
+    }
     await signInWithGoogle();
-    // signInWithGoogle 成功後は onAuthStateChanged が user を更新 → 上の useEffect でリダイレクト
+    // signInWithRedirect はページ遷移するのでここには戻らない
   };
 
-  // ローディング中は何も表示しない
-  if (loading) return null;
+  // ロード中・リダイレクト確認中は何も表示しない
+  if (loading || redirectChecking) return null;
 
   return (
     <div style={{
