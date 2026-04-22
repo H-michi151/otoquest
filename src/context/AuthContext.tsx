@@ -8,7 +8,7 @@ import {
 } from "react";
 import {
   onAuthStateChanged,
-  signInWithRedirect,
+  signInWithPopup,
   signOut as firebaseSignOut,
   type User,
 } from "firebase/auth";
@@ -53,9 +53,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     try {
-      await signInWithRedirect(auth, googleProvider);
-    } catch (e) {
-      console.error("[AuthContext] Google ログインエラー:", e);
+      await signInWithPopup(auth, googleProvider);
+    } catch (e: unknown) {
+      const code = (e as { code?: string })?.code;
+      if (code === "auth/popup-blocked") {
+        alert("ポップアップがブロックされました。\nブラウザのアドレスバーの右側にあるポップアップ許可ボタンをクリックして再度お試しください。");
+      } else if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") {
+        console.error("[AuthContext] Google ログインエラー:", e);
+      }
     }
   };
 

@@ -1,46 +1,20 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 
 export default function LoginPage() {
   const { user, loading, signInWithGoogle } = useAuth();
   const router = useRouter();
-  // リダイレクト結果処理中フラグ
-  const [processing, setProcessing] = useState(true);
 
-  // ① リダイレクト方式: ページロード時に getRedirectResult を処理
-  //    result.user が存在したら即 /search へ飛ぶ
+  // ログイン済みなら /search へ
   useEffect(() => {
-    (async () => {
-      try {
-        const { getRedirectResult } = await import("firebase/auth");
-        const { auth } = await import("@/lib/firebase");
-        if (auth) {
-          const result = await getRedirectResult(auth);
-          if (result?.user) {
-            // ログイン成功 → 直接遷移（onAuthStateChanged を待たない）
-            router.replace("/search");
-            return;
-          }
-        }
-      } catch (e) {
-        console.error("[Login] getRedirectResult error:", e);
-      } finally {
-        setProcessing(false);
-      }
-    })();
-  }, [router]);
-
-  // ② onAuthStateChanged 経由でログイン済みが判明した場合のフォールバック
-  useEffect(() => {
-    if (!loading && !processing && user) {
+    if (!loading && user) {
       router.replace("/search");
     }
-  }, [user, loading, processing, router]);
+  }, [user, loading, router]);
 
-  // 処理中 or 認証状態確認中は何も表示しない
-  if (processing || loading) return null;
+  if (loading) return null;
 
   return (
     <div style={{
