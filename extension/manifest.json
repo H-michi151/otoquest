@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "OtoQuest 最安値チェッカー",
+  "version": "1.0.0",
+  "description": "今見ている商品をOtoQuestで最安値比較します",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": [
+    "https://*.rakuten.co.jp/*",
+    "https://store.shopping.yahoo.co.jp/*",
+    "https://shopping.yahoo.co.jp/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.rakuten.co.jp/*",
+        "https://store.shopping.yahoo.co.jp/*",
+        "https://shopping.yahoo.co.jp/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "48": "icon48.png"
+    }
+  }
+}
