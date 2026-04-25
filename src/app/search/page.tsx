@@ -152,6 +152,19 @@ export default function SearchPage() {
   const [rakutenTotal, setRakutenTotal] = useState(0);
   const [yahooTotal, setYahooTotal] = useState(0);
 
+  // URLパラメータ ?q= から自動検索
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get("q");
+    if (q) {
+      setQuery(q);
+      setSearched(true);
+      searchBothApis(q);
+      fetchKakakuPrice(q);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // アプリIDをsessionStorageから復元（api-testページと共有）
   useEffect(() => {
     const saved = sessionStorage.getItem("rakuten_app_id");
