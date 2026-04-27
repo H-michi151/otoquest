@@ -163,7 +163,7 @@ export default function SearchPage() {
   }, [cardPresetKey]);
 
   // 楽天・Yahoo並列フェッチ
-  const searchBothApis = async (keyword: string) => {
+  const searchBothApis = async (keyword: string, appId?: string) => {
     if (!keyword.trim()) return;
     setLiveLoading(true);
     setLiveError("");
@@ -173,7 +173,8 @@ export default function SearchPage() {
 
     try {
       const rakutenParams = new URLSearchParams({ keyword, hits: "10" });
-      if (liveAppId.trim()) rakutenParams.set("applicationId", liveAppId.trim());
+      const resolvedAppId = appId ?? liveAppId;
+      if (resolvedAppId.trim()) rakutenParams.set("applicationId", resolvedAppId.trim());
 
       const [rakutenRes, yahooRes] = await Promise.all([
         fetch(`/api/rakuten/search?${rakutenParams}`),
@@ -235,7 +236,7 @@ export default function SearchPage() {
     if (q) {
       setQuery(q);
       setSearched(true);
-      searchBothApis(q);
+      searchBothApis(q, saved ?? "");
       fetchKakakuPrice(q);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
