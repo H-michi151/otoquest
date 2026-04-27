@@ -2,12 +2,18 @@
   if (document.getElementById('otoquest-btn')) return;
 
   const host = location.hostname;
+
+  // 商品詳細ページのみ対象（一覧・トップページは除外）
+  const path = location.pathname;
+  if (host.includes('rakuten.co.jp')) {
+    if (!path.match(/^\/(shop\/|[^/]+\/[^/]+)/)) return;
+  }
   let productName = '';
   let price = '';
 
   if (host.includes('rakuten.co.jp')) {
     // 楽天商品ページ
-    const titleEl = document.querySelector('h1');
+    const titleEl = document.querySelector('h1, h2, .item_name, .itemName, [class*="item_name"], [class*="ItemName"]');
     const priceEl = document.querySelector('.price2, .price--number, span[itemprop="price"]');
     productName = titleEl?.textContent?.trim() || '';
     price = priceEl?.textContent?.trim() || '';
