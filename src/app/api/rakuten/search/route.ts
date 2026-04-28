@@ -21,7 +21,10 @@ const RAKUTEN_API =
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
 
-  const keyword       = searchParams.get("keyword") || "";
+  // キーワード正規化: ①「｜」以降を削除 ②30文字に切り詰め ③trim
+  // 例:「ASRock｜アスロック ASRock A520M-HVS / Micro-ATX対応 マザーボード」→「ASRock」
+  const rawKeyword    = searchParams.get("keyword") || "";
+  const keyword       = rawKeyword.split("｜")[0].slice(0, 30).trim();
   const hits          = Math.min(Number(searchParams.get("hits") || "10"), 100);
   const accessKey     = searchParams.get("accessKey") || process.env.RAKUTEN_ACCESS_KEY || "";
   const applicationId = searchParams.get("appId") || searchParams.get("applicationId") || process.env.RAKUTEN_APP_ID || "";
