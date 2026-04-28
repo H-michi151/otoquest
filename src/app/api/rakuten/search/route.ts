@@ -21,10 +21,36 @@ const RAKUTEN_API =
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
 
-  // キーワード正規化: ①「｜」以降を削除 ②30文字に切り詰め ③trim
-  // 例:「ASRock｜アスロック ASRock A520M-HVS / Micro-ATX対応 マザーボード」→「ASRock」
-  const rawKeyword    = searchParams.get("keyword") || "";
-  const keyword       = rawKeyword.split("｜")[0].slice(0, 30).trim();
+  const rawKeyword = searchParams.get("keyword") || "";
+  /**
+   * キーワード正規化: 型番抽出によるメーカー横断検索対応
+   *   ① 「｜」を空白に置換して全パーツを結合
+   *   ② 日本語・全角文字を空白に置換し、ラテン文字のみ残す
+   *   ③ 型番パターン（英字1〜5文字 + ハイフン/スペース? + 数字 + 英数字ハイフン）を抽出
+   *      例: A520M-HVS / WH-1000XM5 / RTX 4080 / DDR5-6000
+   *   ④ 型番が取れない場合は先頭50文字にフォールバック
+   *
+   *   変換例:
+   *   「ASRock｜アスロック ASRock A520M-HVS / Micro-ATX対応 マザーボード」→「A520M-HVS」
+   *   「Sony WH-1000XM5 ワイヤレスノイズキャンセリングヘッドホン」        →「WH-1000XM5」
+   *   「Logicool MX Keys S」                                             →「Logicool MX Keys S」
+   */
+  function normalizeKeyword(raw: string): string {
+    // ① 「｜」→ 空白
+    const joined = raw.split("｜").join(" ");
+    // ② ASCII範囲外（日本語等）を空白化 + スラッシュ・括弧をスペースに
+    const latinOnly = joined
+      .replace(/[^\x20-\x7E]/g, " ")
+      .replace(/[/\\()[\]{}]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    // ③ 型番パターン抽出
+    const modelMatch = latinOnly.match(/[A-Za-z]{1,5}[-\s]?[0-9]+[A-Za-z0-9-]*/);
+    if (modelMatch) return modelMatch[0].trim().slice(0, 50);
+    // ④ フォールバック: 先頭50文字
+    return raw.slice(0, 50).trim();
+  }
+  const keyword = normalizeKeyword(rawKeyword);
   const hits          = Math.min(Number(searchParams.get("hits") || "10"), 100);
   const accessKey     = searchParams.get("accessKey") || process.env.RAKUTEN_ACCESS_KEY || "";
   const applicationId = searchParams.get("appId") || searchParams.get("applicationId") || process.env.RAKUTEN_APP_ID || "";
