@@ -4,6 +4,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import Sidebar from "@/components/Sidebar";
 import Header from "@/components/Header";
+import WatchlistPanel from "@/components/WatchlistPanel";
 
 /**
  * AppShell 認証チェック優先順位:
@@ -67,6 +68,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <main className="flex-1 overflow-y-auto p-6">
           {children}
         </main>
+        <WatchlistPanel />
       </div>
     </div>
   );
