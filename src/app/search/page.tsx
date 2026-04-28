@@ -79,6 +79,28 @@ function isUsedItem(itemName: string): boolean {
   return USED_KEYWORDS.some((kw) => itemName.includes(kw));
 }
 
+// ========================================
+// ③ NGワードフィルター（規格・世代除外）
+// ========================================
+// ▼ 将来: ユーザーが設定画面で追加できるようにする想定
+//   例) const userNgKeywords = useSettingsStore((s) => s.ngKeywords);
+//   　　 const NG_KEYWORDS = [...DEFAULT_NG_KEYWORDS, ...userNgKeywords];
+const DEFAULT_NG_KEYWORDS = [
+  "SATA",  // SSD検索時にSATA規格を除外（NVMe/M.2狙いのケース）
+  "Gen3",  // PCIe Gen3を除外（Gen4/5狙いのケース）
+];
+
+/**
+ * NGワードを含む商品を除外（大文字小文字を無視）
+ * @param itemName 商品名
+ * @param extraNgKeywords ユーザー設定の追加NGワード（将来拡張用）
+ */
+function isNgItem(itemName: string, extraNgKeywords: string[] = []): boolean {
+  const all = [...DEFAULT_NG_KEYWORDS, ...extraNgKeywords];
+  const lower = itemName.toLowerCase();
+  return all.some((kw) => lower.includes(kw.toLowerCase()));
+}
+
 const MODE_LABELS: Record<OptimizationMode, { label: string; icon: string; desc: string }> = {
   standard:     { label: "スタンダード",   icon: "⚖️", desc: "安全性・価格・ポイントをバランスよく評価" },
   safety_first: { label: "安全重視",       icon: "🛡️", desc: "信頼スコア優先。信頼性の低い業者のリスクを強く評価" },
@@ -201,8 +223,8 @@ export default function SearchPage() {
         errors.push(`楽天: ${rakutenData.hint ?? rakutenData.error}`);
       } else {
         const rawItems = (rakutenData.results ?? []) as EnrichedItem[];
-        // ② 中古品除外
-        const newItems = rawItems.filter((item) => !isUsedItem(item.itemName));
+        // ② 中古品除外 ③ NGワード除外
+        const newItems = rawItems.filter((item) => !isUsedItem(item.itemName) && !isNgItem(item.itemName));
         setRakutenTotal(rakutenData.total ?? newItems.length);
         newItems.forEach((item) => {
           allEnriched.push(enrichItemWithLocalCards(item, "楽天市場", cards));
@@ -213,8 +235,8 @@ export default function SearchPage() {
         errors.push(`Yahoo!: ${yahooData.error}`);
       } else {
         const rawItems = (yahooData.results ?? []) as EnrichedItem[];
-        // ② 中古品除外
-        const newItems = rawItems.filter((item) => !isUsedItem(item.itemName));
+        // ② 中古品除外 ③ NGワード除外
+        const newItems = rawItems.filter((item) => !isUsedItem(item.itemName) && !isNgItem(item.itemName));
         setYahooTotal(yahooData.total ?? newItems.length);
         newItems.forEach((item) => {
           allEnriched.push(enrichItemWithLocalCards(item, "Yahoo!ショッピング", cards));
