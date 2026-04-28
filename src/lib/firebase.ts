@@ -157,3 +157,79 @@ export async function addUserPurchase(
     });
   } catch (e) { console.warn("[purchases] write error:", e); }
 }
+
+// ===== ウォッチリスト（Firestore: users/{uid}/watchlist/{id}）=====
+export type WatchlistDoc = {
+  id: string;
+  productName: string;     // 商品名・検索キーワード
+  registeredPrice: number; // 登録時の最安値
+  currentPrice: number;    // 現在の最安値（更新時に上書き）
+  platform: string;        // 楽天 or Yahoo!ショッピング
+  registeredAt: string;    // ISO文字列
+  updatedAt: string;       // ISO文字列
+};
+
+export async function loadUserWatchlist(uid: string): Promise<WatchlistDoc[]> {
+  if (!db) return [];
+  try {
+    const { collection, getDocs, orderBy, query } = await import("firebase/firestore");
+    const q = query(
+      collection(db, `users/${uid}/watchlist`),
+      orderBy("registeredAt", "desc")
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => {
+      const data = d.data();
+      const toIso = (v: unknown) =>
+        v && typeof (v as { toDate?: () => Date }).toDate === "function"
+          ? (v as { toDate: () => Date }).toDate().toISOString()
+          : String(v ?? "");
+      return {
+        ...data,
+        registeredAt: toIso(data.registeredAt),
+        updatedAt: toIso(data.updatedAt),
+      } as WatchlistDoc;
+    });
+  } catch (e) { console.warn("[watchlist] read error:", e); return []; }
+}
+
+export async function addUserWatchlistItem(
+  uid: string,
+  item: Omit<WatchlistDoc, "id" | "registeredAt" | "updatedAt">
+): Promise<void> {
+  if (!db) return;
+  try {
+    const { collection, doc, setDoc, Timestamp } = await import("firebase/firestore");
+    const id = `watch_${Date.now()}`;
+    await setDoc(doc(collection(db, `users/${uid}/watchlist`), id), {
+      ...item,
+      id,
+      registeredAt: Timestamp.now(),
+      updatedAt: Timestamp.now(),
+    });
+  } catch (e) { console.warn("[watchlist] write error:", e); }
+}
+
+export async function removeUserWatchlistItem(uid: string, id: string): Promise<void> {
+  if (!db) return;
+  try {
+    const { collection, doc, deleteDoc } = await import("firebase/firestore");
+    await deleteDoc(doc(collection(db, `users/${uid}/watchlist`), id));
+  } catch (e) { console.warn("[watchlist] delete error:", e); }
+}
+
+export async function updateWatchlistCurrentPrice(
+  uid: string,
+  id: string,
+  currentPrice: number
+): Promise<void> {
+  if (!db) return;
+  try {
+    const { collection, doc, updateDoc, Timestamp } = await import("firebase/firestore");
+    await updateDoc(doc(collection(db, `users/${uid}/watchlist`), id), {
+      currentPrice,
+      updatedAt: Timestamp.now(),
+    });
+  } catch (e) { console.warn("[watchlist] update error:", e); }
+}
+

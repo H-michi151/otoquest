@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getKakakuPrice, isStalePrice, loadUserCards, addUserPurchase, type KakakuPrice } from "@/lib/firebase";
+import { getKakakuPrice, isStalePrice, loadUserCards, addUserPurchase, addUserWatchlistItem, type KakakuPrice } from "@/lib/firebase";
 import {
   enrichItem,
   enrichItemWithLocalCards,
@@ -1026,6 +1026,29 @@ export default function SearchPage() {
                                         }}
                                       >
                                         📝 購入記録
+                                      </button>
+                                    )}
+                                    {/* ウォッチリスト追加ボタン */}
+                                    {user && (
+                                      <button
+                                        onClick={() => {
+                                          addUserWatchlistItem(user.uid, {
+                                            productName: query.trim() || item.itemName.slice(0, 50),
+                                            registeredPrice: item.realPrice,
+                                            currentPrice: item.realPrice,
+                                            platform: item.source,
+                                          }).then(() => alert(`⭐ ウォッチリストに追加しました\n${item.itemName.slice(0, 40)}`));
+                                        }}
+                                        style={{
+                                          display: "block", marginTop: 4,
+                                          padding: "3px 10px", borderRadius: 5,
+                                          border: "1px solid #fde68a",
+                                          background: "#fffbeb", color: "#92400e",
+                                          fontSize: 10, fontWeight: 600,
+                                          cursor: "pointer", fontFamily: "inherit",
+                                        }}
+                                      >
+                                        ⭐ ウォッチ追加
                                       </button>
                                     )}
                                   </td>
