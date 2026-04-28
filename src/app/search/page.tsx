@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { getKakakuPrice, isStalePrice, loadUserCards, addUserPurchase, type KakakuPrice } from "@/lib/firebase";
 import {
   enrichItem,
@@ -142,6 +142,12 @@ export default function SearchPage() {
       ? allUserCardObjects
       : allUserCardObjects.filter((c) => userCards.includes(c.name));
 
+  // activeCardObjects の最新値を useRef で保持（stale closure 対策）
+  const activeCardObjectsRef = useRef(activeCardObjects);
+  useEffect(() => {
+    activeCardObjectsRef.current = activeCardObjects;
+  }, [activeCardObjects]);
+
   // ========================================
   // リアルAPI（楽天＋Yahoo 並列）
   // ========================================
@@ -162,8 +168,8 @@ export default function SearchPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cardPresetKey]);
 
-  // 楽天・Yahoo並列フェッチ
-  const searchBothApis = async (keyword: string, appId?: string) => {
+  // 楽天・Yahoo並列フェッチ（useCallback化 + activeCardObjectsRef で stale closure 解消）
+  const searchBothApis = useCallback(async (keyword: string, appId?: string) => {
     if (!keyword.trim()) return;
     setLiveLoading(true);
     setLiveError("");
@@ -173,7 +179,7 @@ export default function SearchPage() {
 
     try {
       const rakutenParams = new URLSearchParams({ keyword, hits: "10" });
-      const resolvedAppId = appId ?? liveAppId;
+      const resolvedAppId = appId ?? "";
       if (resolvedAppId.trim()) rakutenParams.set("applicationId", resolvedAppId.trim());
 
       const [rakutenRes, yahooRes] = await Promise.all([
@@ -188,6 +194,8 @@ export default function SearchPage() {
 
       const errors: string[] = [];
       const allEnriched: EnrichedItem[] = [];
+      // Ref 経由で常に最新の activeCardObjects を参照
+      const cards = activeCardObjectsRef.current;
 
       if (rakutenData.error) {
         errors.push(`楽天: ${rakutenData.hint ?? rakutenData.error}`);
@@ -197,7 +205,7 @@ export default function SearchPage() {
         const newItems = rawItems.filter((item) => !isUsedItem(item.itemName));
         setRakutenTotal(rakutenData.total ?? newItems.length);
         newItems.forEach((item) => {
-          allEnriched.push(enrichItemWithLocalCards(item, "楽天市場", activeCardObjects));
+          allEnriched.push(enrichItemWithLocalCards(item, "楽天市場", cards));
         });
       }
 
@@ -209,7 +217,7 @@ export default function SearchPage() {
         const newItems = rawItems.filter((item) => !isUsedItem(item.itemName));
         setYahooTotal(yahooData.total ?? newItems.length);
         newItems.forEach((item) => {
-          allEnriched.push(enrichItemWithLocalCards(item, "Yahoo!ショッピング", activeCardObjects));
+          allEnriched.push(enrichItemWithLocalCards(item, "Yahoo!ショッピング", cards));
         });
       }
 
@@ -224,7 +232,9 @@ export default function SearchPage() {
     } finally {
       setLiveLoading(false);
     }
-  };
+  // activeCardObjectsRef は Ref なので依存不要。liveAppId は appId 引数で渡すため除外。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // アプリIDをsessionStorageから復元 + URLパラメータ自動検索
   useEffect(() => {
@@ -239,8 +249,7 @@ export default function SearchPage() {
       searchBothApis(q, saved ?? "");
       fetchKakakuPrice(q);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [searchBothApis, fetchKakakuPrice]);
 
   // 検索実行（リアルAPIのみ）
   const handleSearch = () => {
