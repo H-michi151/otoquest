@@ -848,8 +848,8 @@ export default function SearchPage() {
                           </div>
                         </div>
                         <div style={{ textAlign: "right", marginLeft: "auto" }}>
-                          <div style={{ fontSize: 11, color: "#64748b" }}>実質最安値</div>
-                          <div style={{ fontSize: 24, fontWeight: 900, color: "#059669" }}>¥{topReal.toLocaleString()}</div>
+                          <div style={{ fontSize: 11, color: "#64748b" }}>最安値</div>
+                          <div style={{ fontSize: 24, fontWeight: 900, color: "#059669" }}>¥{top.price.toLocaleString()}</div>
                           <div style={{ fontSize: 10, color: "#94a3b8" }}>({top.cardName} {top.cardRate > 0 ? `+${top.cardRate}%` : "カードなし"})</div>
                         </div>
                         {rakutenBest && yahooBest && !isDraw && (
@@ -871,8 +871,8 @@ export default function SearchPage() {
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                           <thead>
                             <tr style={{ background: "#f8fafc", borderBottom: "2px solid #e2e8f0" }}>
-                              {["順位","購入先","商品名","表示価格","クーポン","ポイント還元","カード追加","ポイント価値","実質価格"].map(h => (
-                                <th key={h} style={{ padding: "8px 10px", textAlign: h === "実質価格" ? "right" : "left", fontWeight: 700, color: "#374151", fontSize: 11, whiteSpace: "nowrap" }}>{h}</th>
+                              {["順位","購入先","商品名","実価格","クーポン","ポイント還元","カード追加","ポイント獲得"].map(h => (
+                                <th key={h} style={{ padding: "8px 10px", textAlign: "left", fontWeight: 700, color: "#374151", fontSize: 11, whiteSpace: "nowrap" }}>{h}</th>
                               ))}
                             </tr>
                           </thead>
@@ -918,9 +918,12 @@ export default function SearchPage() {
                                     </a>
                                     <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>{item.shop}</div>
                                   </td>
-                                  {/* 表示価格 */}
+                                  {/* 実価格（表示価格） */}
                                   <td style={{ padding: "10px 8px", whiteSpace: "nowrap" }}>
-                                    <span style={{ fontSize: 13, fontWeight: 700, color: "#374151" }}>¥{item.price.toLocaleString()}</span>
+                                    <span style={{ fontSize: 13, fontWeight: 700, color: isTop ? "#059669" : "#374151" }}>¥{item.price.toLocaleString()}</span>
+                                    {isTop && (
+                                      <div style={{ fontSize: 9, color: "#059669", fontWeight: 700, marginTop: 1 }}>✅ 最安</div>
+                                    )}
                                   </td>
                                   {/* クーポン */}
                                   <td style={{ padding: "10px 8px", textAlign: "center" }}>
@@ -949,26 +952,13 @@ export default function SearchPage() {
                                     <span style={{ fontSize: 11, fontWeight: 600, color: "#059669" }}>{item.pointValue.toLocaleString()}pt</span>
                                     <div style={{ fontSize: 10, color: "#94a3b8" }}>合計{item.totalRate}%還元</div>
                                   </td>
-                                  {/* 実質価格 */}
+                                  {/* 操作・リンク */}
                                   <td style={{ padding: "10px 12px", textAlign: "right" }}>
-                                    {/* 実質価格 */}
-                                    <div style={{ fontSize: 16, fontWeight: 900, color: isTop ? "#059669" : "#374151" }}>
-                                      ¥{item.realPrice.toLocaleString()}
-                                    </div>
-                                    {/* 節約額 */}
-                                    {item.price > item.realPrice && (
-                                      <div style={{ fontSize: 10, color: "#059669", fontWeight: 600 }}>
-                                        節約 ¥{(item.price - item.realPrice).toLocaleString()} お得
-                                      </div>
-                                    )}
-                                    {isTop && (
-                                      <div style={{ fontSize: 9, color: "#059669", fontWeight: 700 }}>✅ 最安</div>
-                                    )}
                                     {/* B-2: 価格.com差額バッジ */}
                                     {(() => {
                                       const kp = kakakuPriceMap[query.trim()];
                                       if (!kp) return null;
-                                      const diff = item.realPrice - kp.minPrice;
+                                      const diff = item.price - kp.minPrice;
                                       if (diff < 0) {
                                         return (
                                           <div style={{
@@ -1052,6 +1042,7 @@ export default function SearchPage() {
                                       </button>
                                     )}
                                   </td>
+
                                 </tr>
                               );
                             })}
@@ -1059,18 +1050,18 @@ export default function SearchPage() {
                         </table>
                       </div>
 
-                      {/* 計算式の説明 */}
+                      {/* フッター説明 */}
                       <div style={{ padding: "8px 16px", background: "#f8fafc", borderTop: "1px solid #e2e8f0", fontSize: 10, color: "#94a3b8", display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-                        <span>💡 実質価格 = 表示価格 − floor(価格 × 合計還元率 × ポイント利用頻度)　※ 合計還元率 = プラットフォーム還元 + カード還元率（SPU込み）　🚫 中古・訳あり・ジャンク品は自動除外</span>
+                        <span>💡 実価格 = 表示価格（送料込み）でランキング　ポイント獲得数は参考値　🚫 中古・訳あり・ジャンク品は自動除外</span>
                         {kakakuPriceMap[query.trim()] && (
                           <span style={{ color: "#b45309" }}>
                             📋 価格.com参考最安値: ¥{kakakuPriceMap[query.trim()]!.minPrice.toLocaleString()}（{kakakuPriceMap[query.trim()]!.shopName}）
                             {isStalePrice(kakakuPriceMap[query.trim()]!.fetchedAt) && "　⚠️ 古い情報の可能性あり"}
                           </span>
                         )}
-                        {/* ① 価格.comカテゴリ別最安一覧リンク */}
+                        {/* 価格.com検索リンク */}
                         <a
-                          href={getKakakuCategoryUrl(query.trim())}
+                          href={`https://kakaku.com/search_results/?query=${encodeURIComponent(query.trim())}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           style={{
@@ -1080,7 +1071,7 @@ export default function SearchPage() {
                             textDecoration: "none", whiteSpace: "nowrap",
                           }}
                         >
-                          📋 価格.com最安順で見る →
+                          📋 価格.comで検索する →
                         </a>
                       </div>
                     </div>

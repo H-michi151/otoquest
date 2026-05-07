@@ -3,8 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const navItems = [
-  { href: "/", icon: "🏠", label: "マイページ", sub: "ダッシュボード" },
-  { href: "/dashboard", icon: "📊", label: "ダッシュボード", sub: "月次集計・カード管理" },
+  { href: "/dashboard", icon: "🏠", label: "マイページ", sub: "ダッシュボード" },
   { href: "/compare", icon: "💰", label: "価格比較", sub: "実質価格・最安判定" },
   { href: "/search",    icon: "⚔️", label: "商品検索",       sub: "最安値・最適購入" },
   { href: "/cards", icon: "💳", label: "カード管理", sub: "クレカ最適化" },
