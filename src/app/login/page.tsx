@@ -7,10 +7,10 @@ export default function LoginPage() {
   const { user, loading, signInWithGoogle } = useAuth();
   const router = useRouter();
 
-  // ログイン済みなら /search へ
+  // ログイン済みなら /dashboard（マイページ）へ
   useEffect(() => {
     if (!loading && user) {
-      router.replace("/search");
+      router.replace("/dashboard");
     }
   }, [user, loading, router]);
 

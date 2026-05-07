@@ -944,9 +944,9 @@ export default function SearchPage() {
                                         </>
                                       : <span style={{ fontSize: 11, color: "#cbd5e1" }}>—</span>}
                                   </td>
-                                  {/* ポイント価値（円換算） */}
+                                  {/* ポイント獲得数（pt表示のみ） */}
                                   <td style={{ padding: "10px 8px", whiteSpace: "nowrap" }}>
-                                    <span style={{ fontSize: 11, fontWeight: 600, color: "#059669" }}>-¥{item.pointValue.toLocaleString()}</span>
+                                    <span style={{ fontSize: 11, fontWeight: 600, color: "#059669" }}>{item.pointValue.toLocaleString()}pt</span>
                                     <div style={{ fontSize: 10, color: "#94a3b8" }}>合計{item.totalRate}%還元</div>
                                   </td>
                                   {/* 実質価格 */}

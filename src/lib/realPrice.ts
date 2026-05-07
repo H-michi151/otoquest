@@ -153,16 +153,16 @@ export function enrichItemWithLocalCards(
 /**
  * EnrichedItem のリストをソートして順位をつける
  *
- * 優先順位（③ 厳密化済み）:
- *   1位：実質価格が安い順（絶対条件・1円でも差があれば安い方が上位）
- *   同額（±0円）の場合のみ：実効還元率が高い方を優先
+ * 優先順位:
+ *   1位：表示価格（itemPrice・送料込み）が安い順
+ *   同価格の場合のみ：ポイント還元率(point_rate)が高い順
  */
 export function rankItems(items: EnrichedItem[]): EnrichedItem[] {
   return [...items].sort((a, b) => {
-    const diff = a.realPrice - b.realPrice;
+    const diff = a.price - b.price;
     if (diff === 0) {
-      // 完全同額のみ実効還元率（cardRate）で決定
-      return b.cardRate - a.cardRate;
+      // 同価格のみポイント還元率（point_rate）で決定
+      return b.point_rate - a.point_rate;
     }
     return diff;
   });
