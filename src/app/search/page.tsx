@@ -28,43 +28,7 @@ const platformCampaignMap: Record<string, string[]> = {
   "Yahoo!ショッピング": ["PayPay春のポイント祭り"],
 };
 
-// ========================================
-// ① 価格.com カテゴリ別 URLマップ
-// ========================================
-const KAKAKU_CATEGORY_URLS: { keywords: string[]; url: string }[] = [
-  {
-    keywords: ["マザーボード", "motherboard", "MB", "M/B"],
-    url: "https://kakaku.com/pc/motherboard/itemlist.aspx?pdf_Spec116=11&pdf_so=p1",
-  },
-  {
-    keywords: ["SSD", "ソリッドステート"],
-    url: "https://kakaku.com/pc/ssd/itemlist.aspx?pdf_so=p1",
-  },
-  {
-    keywords: ["メモリ", "memory", "RAM", "DDR4", "DDR5"],
-    url: "https://kakaku.com/pc/pc-memory/itemlist.aspx?pdf_so=p1",
-  },
-  {
-    keywords: ["CPU", "プロセッサ", "Ryzen", "Core i", "Core Ultra"],
-    url: "https://kakaku.com/pc/cpu/itemlist.aspx?pdf_so=p1",
-  },
-  {
-    keywords: ["GPU", "グラボ", "グラフィック", "RTX", "RX ", "GeForce", "Radeon"],
-    url: "https://kakaku.com/pc/videocard/itemlist.aspx?pdf_so=p1",
-  },
-];
-const KAKAKU_FALLBACK_URL = "https://kakaku.com/pc/";
 
-/** キーワードから価格.comカテゴリーページURLを取得 */
-function getKakakuCategoryUrl(keyword: string): string {
-  const lower = keyword.toLowerCase();
-  for (const entry of KAKAKU_CATEGORY_URLS) {
-    if (entry.keywords.some((k) => lower.includes(k.toLowerCase()))) {
-      return entry.url;
-    }
-  }
-  return KAKAKU_FALLBACK_URL;
-}
 
 // ========================================
 // ② 中古品・訳あり品除外フィルター
