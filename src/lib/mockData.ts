@@ -456,136 +456,29 @@ export const orders = [
 // pointCap: このキャンペーンで獲得できる上限ポイント（nullは無制限）
 // pointsEarned: これまでに獲得済みのポイント
 // isCapped: true = 上限到達 → 最適化計算から自動除外
-export const campaigns = [
-  {
-    id: "camp_001",
-    platform: "楽天市場",
-    platformColor: "#cc0000",
-    name: "楽天スーパーSALE",
-    description: "最大50%OFF + ポイント最大20倍",
-    bonusRate: 20.0,
-    status: "entered" as const,
-    deadline: "2026-03-31",
-    potentialPoints: 12400,
-    category: "買い物全般",
-    pointCap: 10000,
-    pointsEarned: 3420,
-    isCapped: false,
-    capNote: "上限10,000pt中 3,420pt獲得済（残り6,580pt）",
-  },
-  {
-    id: "camp_002",
-    platform: "三井住友カード",
-    platformColor: "#003087",
-    name: "新規入会キャンペーン",
-    description: "入会後3ヶ月以内に10万円利用で8,000pt付与",
-    bonusRate: 8.0,
-    status: "entered" as const,
-    deadline: "2026-04-30",
-    potentialPoints: 8000,
-    category: "クレカ入会",
-    pointCap: 8000,
-    pointsEarned: 8000,
-    isCapped: true,
-    capNote: "⚠️ 上限8,000pt達成済 → このキャンペーンは最適化計算から自動除外されます",
-  },
-  {
-    id: "camp_003",
-    platform: "Amazon",
-    platformColor: "#FF9900",
-    name: "プライムデー先行セール",
-    description: "プライム会員限定 最大30%OFF",
-    bonusRate: 2.0,
-    status: "not_entered" as const,
-    deadline: "2026-04-10",
-    potentialPoints: 3200,
-    category: "セール",
-    pointCap: 5000,
-    pointsEarned: 0,
-    isCapped: false,
-    capNote: "未エントリー",
-  },
-  {
-    id: "camp_004",
-    platform: "PayPay",
-    platformColor: "#1a237e",
-    name: "PayPay春のポイント祭り",
-    description: "対象店舗でPayPay支払い最大10%還元",
-    bonusRate: 10.0,
-    status: "entered" as const,
-    deadline: "2026-03-31",
-    potentialPoints: 2100,
-    category: "スマホ決済",
-    pointCap: 3000,
-    pointsEarned: 2850,
-    isCapped: false,
-    capNote: "上限3,000pt中 2,850pt獲得済（残り150pt）— もうすぐ上限",
-  },
-  {
-    id: "camp_005",
-    platform: "ヨドバシ",
-    platformColor: "#e60012",
-    name: "ヨドバシゴールドポイントカード入会特典",
-    description: "新規入会で500pt + 購入額の10%還元",
-    bonusRate: 10.0,
-    status: "not_entered" as const,
-    deadline: "2026-04-15",
-    potentialPoints: 4500,
-    category: "ポイントカード",
-    pointCap: null,
-    pointsEarned: 0,
-    isCapped: false,
-    capNote: "上限なし（ただし利用頻度低のため失効リスクあり）",
-  },
-];
+export const campaigns: {
+  id: string;
+  platform: string;
+  platformColor: string;
+  name: string;
+  description: string;
+  bonusRate: number;
+  status: "entered" | "not_entered";
+  deadline: string;
+  potentialPoints: number;
+  category: string;
+  pointCap: number | null;
+  pointsEarned: number;
+  isCapped: boolean;
+  capNote: string;
+}[] = [];
 
 // よく買うアイテム（クイックフィルター用）
-export const frequentItems = [
-  {
-    category: "PCキーボード・マウス",
-    icon: "⌨️",
-    items: [
-      { name: "Logicool MX Keys S", tags: ["キーボード", "ロジクール"], monthlyFreq: 0 },
-      { name: "Logicool MX Master 3S", tags: ["マウス", "ロジクール"], monthlyFreq: 0 },
-      { name: "Logicool G Pro X", tags: ["ゲーミング", "マウス"], monthlyFreq: 0 },
-    ],
-  },
-  {
-    category: "オーディオ",
-    icon: "🎧",
-    items: [
-      { name: "Sony WH-1000XM5", tags: ["ヘッドホン", "ノイキャン"], monthlyFreq: 0 },
-      { name: "Sony WF-1000XM5", tags: ["イヤホン", "TWS"], monthlyFreq: 0 },
-      { name: "AirPods Pro", tags: ["イヤホン", "Apple"], monthlyFreq: 0 },
-    ],
-  },
-  {
-    category: "PCパーツ・GPU",
-    icon: "🖥️",
-    items: [
-      { name: "RTX 4070 Ti", tags: ["GPU", "NVIDIA"], monthlyFreq: 0 },
-      { name: "RTX 4080", tags: ["GPU", "NVIDIA"], monthlyFreq: 0 },
-      { name: "Samsung 990 Pro SSD", tags: ["SSD", "NVMe"], monthlyFreq: 0 },
-    ],
-  },
-  {
-    category: "タブレット・スマホ",
-    icon: "📱",
-    items: [
-      { name: "iPad Pro M4", tags: ["タブレット", "Apple"], monthlyFreq: 0 },
-      { name: "iPhone 16 Pro", tags: ["スマホ", "Apple"], monthlyFreq: 0 },
-    ],
-  },
-  {
-    category: "消耗品・文具",
-    icon: "📦",
-    items: [
-      { name: "コピー用紙 A4", tags: ["文具", "消耗品"], monthlyFreq: 3 },
-      { name: "プリンターインク", tags: ["消耗品"], monthlyFreq: 2 },
-      { name: "単三電池 エネループ", tags: ["電池", "消耗品"], monthlyFreq: 1 },
-    ],
-  },
-];
+export const frequentItems: {
+  category: string;
+  icon: string;
+  items: { name: string; tags: string[]; monthlyFreq: number }[];
+}[] = [];
 
 
 // 商品検索結果（モック）
