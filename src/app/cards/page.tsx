@@ -1,232 +1,328 @@
 "use client";
-import { creditCards } from "@/lib/mockData";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useAuth } from "@/context/AuthContext";
+import { loadUserCards, saveUserCards, type CardDoc } from "@/lib/firebase";
+
+const COLORS = ["#cc0000", "#1a237e", "#1b5e20", "#4a148c", "#e65100", "#006064", "#37474f"];
+const COLOR_LABELS: Record<string, string> = {
+  "#cc0000": "赤",
+  "#1a237e": "紺",
+  "#1b5e20": "緑",
+  "#4a148c": "紫",
+  "#e65100": "橙",
+  "#006064": "青緑",
+  "#37474f": "グレー",
+};
+
+const EMPTY_FORM: Omit<CardDoc, "id"> = {
+  name: "",
+  limit: 0,
+  pointRate: 1,
+  color: "#cc0000",
+};
 
 export default function CardsPage() {
-  const [selected, setSelected] = useState<string | null>(null);
+  const { user } = useAuth();
+  const [cards, setCards] = useState<CardDoc[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState<Omit<CardDoc, "id">>(EMPTY_FORM);
+  const [saveMsg, setSaveMsg] = useState("");
+
+  // Firestoreから読み込み
+  useEffect(() => {
+    if (!user) return;
+    setLoading(true);
+    loadUserCards(user.uid).then((docs) => {
+      setCards(docs);
+      setLoading(false);
+    });
+  }, [user]);
+
+  const persistCards = async (next: CardDoc[]) => {
+    if (!user) return;
+    setSaving(true);
+    try {
+      await saveUserCards(user.uid, next);
+      setCards(next);
+      setSaveMsg("✅ 保存しました");
+      setTimeout(() => setSaveMsg(""), 2000);
+    } catch {
+      setSaveMsg("❌ 保存に失敗しました");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openAdd = () => {
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    setShowForm(true);
+  };
+
+  const openEdit = (card: CardDoc) => {
+    setEditingId(card.id);
+    setForm({ name: card.name, limit: card.limit, pointRate: card.pointRate, color: card.color });
+    setShowForm(true);
+  };
+
+  const handleSubmit = async () => {
+    if (!form.name.trim()) return;
+    let next: CardDoc[];
+    if (editingId) {
+      next = cards.map((c) => c.id === editingId ? { id: editingId, ...form } : c);
+    } else {
+      const id = `card_${Date.now()}`;
+      next = [...cards, { id, ...form }];
+    }
+    await persistCards(next);
+    setShowForm(false);
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("このカードを削除しますか？")) return;
+    await persistCards(cards.filter((c) => c.id !== id));
+  };
+
+  if (loading) {
+    return (
+      <div style={{ textAlign: "center", padding: 48, color: "#64748b" }}>
+        <div style={{ fontSize: 32, marginBottom: 8 }}>⏳</div>
+        <div>カード情報を読み込み中...</div>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ maxWidth: 1100, margin: "0 auto" }}>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 900, color: "#f5c842", marginBottom: 4 }}>
-          💳 クレジットカード管理 — ライフサイクル最適化
-        </h1>
-        <p style={{ fontSize: 13, color: "#64748b" }}>
-          保有カードの還元率・キャンペーン期限・解約推奨をAIが自動管理
-        </p>
+    <div style={{ maxWidth: 900, margin: "0 auto" }}>
+      {/* ページヘッダー */}
+      <div style={{ marginBottom: 24, display: "flex", alignItems: "flex-end", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+        <div>
+          <h1 style={{ fontSize: 22, fontWeight: 900, color: "#1e40af", marginBottom: 4 }}>
+            💳 カード管理
+          </h1>
+          <p style={{ fontSize: 13, color: "#64748b" }}>
+            保有カードを登録すると、商品検索の還元率計算に反映されます。
+          </p>
+        </div>
+        <button
+          onClick={openAdd}
+          style={{
+            padding: "10px 20px", borderRadius: 8,
+            background: "linear-gradient(90deg,#1e40af,#3b82f6)",
+            color: "white", fontSize: 13, fontWeight: 700,
+            border: "none", cursor: "pointer", fontFamily: "inherit",
+          }}
+        >
+          ＋ カードを追加
+        </button>
       </div>
 
-      {/* サマリー */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginBottom: 24 }}>
-        {[
-          { label: "保有カード数", value: `${creditCards.length}枚`, color: "#e2e8f0" },
-          { label: "今月の還元合計", value: "¥3,240", color: "#34d399" },
-          { label: "キャンペーン中", value: `${creditCards.filter(c => c.status === "campaign").length}枚`, color: "#f5c842" },
-          { label: "解約推奨", value: `${creditCards.filter(c => c.recommendation === "cancel").length}枚`, color: "#ef4444" },
-        ].map((s) => (
-          <div key={s.label} className="dq-card" style={{ padding: 16 }}>
-            <div style={{ fontSize: 11, color: "#64748b" }}>{s.label}</div>
-            <div style={{ fontSize: 24, fontWeight: 900, color: s.color, marginTop: 4 }}>{s.value}</div>
-          </div>
-        ))}
-      </div>
+      {/* 保存メッセージ */}
+      {saveMsg && (
+        <div style={{ marginBottom: 12, padding: "8px 14px", borderRadius: 8, background: saveMsg.startsWith("✅") ? "#f0fdf4" : "#fff1f2", border: `1px solid ${saveMsg.startsWith("✅") ? "#86efac" : "#fca5a5"}`, fontSize: 13, color: saveMsg.startsWith("✅") ? "#065f46" : "#9f1239" }}>
+          {saveMsg}
+        </div>
+      )}
 
       {/* カード一覧 */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 16 }}>
-        {creditCards.map((card) => (
-          <div
-            key={card.id}
-            className={card.recommendation === "cancel" ? "dq-card dq-card-danger" : "dq-card"}
-            style={{ padding: 20, cursor: "pointer", position: "relative" }}
-            onClick={() => setSelected(selected === card.id ? null : card.id)}
+      {cards.length === 0 ? (
+        <div className="dq-card" style={{ padding: 48, textAlign: "center", color: "#94a3b8" }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>💳</div>
+          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 8, color: "#64748b" }}>まだカードが登録されていません</div>
+          <div style={{ fontSize: 13, marginBottom: 24 }}>「＋ カードを追加」からクレジットカードを登録してください。</div>
+          <button
+            onClick={openAdd}
+            style={{ padding: "10px 24px", borderRadius: 8, background: "#1e40af", color: "white", fontSize: 13, fontWeight: 700, border: "none", cursor: "pointer", fontFamily: "inherit" }}
           >
-            {/* カードヘッダー */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 12,
-                marginBottom: 16,
-              }}
-            >
-              <div
-                style={{
-                  width: 52,
-                  height: 36,
-                  background: `linear-gradient(135deg, ${card.color}, ${card.color}aa)`,
-                  borderRadius: 6,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 10,
-                  color: "white",
-                  fontWeight: 700,
-                }}
-              >
-                {card.brand}
-              </div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: "#e2e8f0" }}>
+            ＋ カードを追加
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+          {cards.map((card) => (
+            <div key={card.id} className="dq-card" style={{ padding: 20 }}>
+              {/* カードビジュアル */}
+              <div style={{
+                height: 80, borderRadius: 10, marginBottom: 14,
+                background: `linear-gradient(135deg, ${card.color} 0%, ${card.color}99 100%)`,
+                display: "flex", alignItems: "flex-end", padding: "12px 14px",
+                boxShadow: `0 4px 14px ${card.color}44`,
+              }}>
+                <div style={{ color: "white", fontWeight: 900, fontSize: 15, textShadow: "0 1px 3px rgba(0,0,0,0.4)" }}>
                   {card.name}
                 </div>
-                <div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>
-                  年会費: {card.annualFee === 0 ? "無料" : `¥${card.annualFee.toLocaleString()}`}
-                </div>
               </div>
-              <span
-                className={
-                  card.status === "campaign"
-                    ? "badge-yellow"
-                    : card.status === "review"
-                    ? "badge-red"
-                    : "badge-green"
-                }
-              >
-                {card.status === "campaign"
-                  ? "🎯 キャンペーン中"
-                  : card.status === "review"
-                  ? "⚠️ 要見直し"
-                  : "✓ 維持"}
-              </span>
-            </div>
 
-            {/* 数値情報 */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12 }}>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 10, color: "#64748b" }}>通常還元率</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#f5c842" }}>
-                  {card.pointRate}%
+              {/* 数値情報 */}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 14 }}>
+                <div style={{ padding: "8px 10px", borderRadius: 8, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                  <div style={{ fontSize: 10, color: "#64748b" }}>ポイント還元率</div>
+                  <div style={{ fontSize: 18, fontWeight: 900, color: "#1e40af" }}>{card.pointRate}%</div>
                 </div>
-              </div>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 10, color: "#64748b" }}>ベスト還元率</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#34d399" }}>
-                  {card.bonusRate}%
-                </div>
-              </div>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 10, color: "#64748b" }}>月間利用額</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "#e2e8f0" }}>
-                  ¥{(card.monthlySpend / 1000).toFixed(1)}k
-                </div>
-              </div>
-            </div>
-
-            {/* キャンペーン情報 */}
-            {card.campaignDeadline && (
-              <div
-                style={{
-                  marginTop: 12,
-                  padding: "8px 12px",
-                  background: "rgba(245,200,66,0.1)",
-                  borderRadius: 6,
-                  border: "1px solid rgba(245,200,66,0.2)",
-                }}
-              >
-                <div style={{ fontSize: 11, color: "#f5c842" }}>
-                  🎁 キャンペーン期限: {card.campaignDeadline}
-                </div>
-                <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
-                  達成で +{card.campaignBonus?.toLocaleString()}pt
-                </div>
-              </div>
-            )}
-
-            {/* 解約推奨の理由 */}
-            {card.recommendation === "cancel" && (
-              <div
-                style={{
-                  marginTop: 12,
-                  padding: "8px 12px",
-                  background: "rgba(239,68,68,0.1)",
-                  borderRadius: 6,
-                }}
-              >
-                <div style={{ fontSize: 11, color: "#fca5a5", fontWeight: 700 }}>
-                  🚨 解約推奨
-                </div>
-                <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>
-                  {card.cancelReason}
-                </div>
-                <button className="btn-danger" style={{ marginTop: 8 }}>
-                  解約手続きガイドを見る
-                </button>
-              </div>
-            )}
-
-            {/* ベストな用途 */}
-            {selected === card.id && (
-              <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 6 }}>
-                  💡 このカードが最もお得な場所
-                </div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {card.bestFor.map((b) => (
-                    <span key={b} className="badge-blue">
-                      {b}
-                    </span>
-                  ))}
-                </div>
-                <div style={{ fontSize: 11, color: "#64748b", marginTop: 8 }}>
-                  累計ポイント: <span style={{ color: "#f5c842", fontWeight: 700 }}>
-                    {card.accumulatedPoints.toLocaleString()}pt
-                  </span>
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      {/* 新規カード提案 */}
-      <div className="dq-card dq-card-purple" style={{ padding: 24, marginTop: 24 }}>
-        <div className="section-header">
-          <span>✨</span>
-          <h2 style={{ color: "#c4b5fd" }}>AI推奨 — 新規取得候補カード</h2>
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2,1fr)", gap: 16 }}>
-          {[
-            {
-              name: "三井住友カードゴールド(NL)",
-              reason: "年100万円修行で永年無料化。SBI証券積立で最大5%還元。長期保有価値が非常に高い。",
-              bonus: "11,000",
-              rate: "0.5〜10%",
-            },
-            {
-              name: "JCBカードS",
-              reason: "Amazon・セブン等で高還元。JCBプロパーカードでステータス性も高く、海外旅行保険完備。",
-              bonus: "5,000",
-              rate: "0.5〜3%",
-            },
-          ].map((rec) => (
-            <div
-              key={rec.name}
-              style={{
-                padding: 16,
-                background: "rgba(15,23,42,0.5)",
-                borderRadius: 8,
-                border: "1px solid rgba(147,51,234,0.2)",
-              }}
-            >
-              <div style={{ fontSize: 14, fontWeight: 700, color: "#e2e8f0", marginBottom: 6 }}>
-                {rec.name}
-              </div>
-              <div style={{ fontSize: 11, color: "#94a3b8", marginBottom: 8 }}>{rec.reason}</div>
-              <div style={{ display: "flex", gap: 12 }}>
-                <div>
-                  <div style={{ fontSize: 10, color: "#64748b" }}>入会特典</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#34d399" }}>
-                    +{rec.bonus}pt
+                <div style={{ padding: "8px 10px", borderRadius: 8, background: "#f8fafc", border: "1px solid #e2e8f0" }}>
+                  <div style={{ fontSize: 10, color: "#64748b" }}>利用限度額</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: "#374151" }}>
+                    {card.limit > 0 ? `¥${card.limit.toLocaleString()}` : "—"}
                   </div>
                 </div>
-                <div>
-                  <div style={{ fontSize: 10, color: "#64748b" }}>最大還元率</div>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#f5c842" }}>{rec.rate}</div>
-                </div>
+              </div>
+
+              {/* 操作ボタン */}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={() => openEdit(card)}
+                  style={{
+                    flex: 1, padding: "7px 0", borderRadius: 6,
+                    border: "1px solid #e2e8f0", background: "white",
+                    color: "#374151", fontSize: 12, fontWeight: 600,
+                    cursor: "pointer", fontFamily: "inherit",
+                  }}
+                >
+                  ✏️ 編集
+                </button>
+                <button
+                  onClick={() => handleDelete(card.id)}
+                  style={{
+                    flex: 1, padding: "7px 0", borderRadius: 6,
+                    border: "1px solid #fca5a5", background: "#fff1f2",
+                    color: "#dc2626", fontSize: 12, fontWeight: 600,
+                    cursor: "pointer", fontFamily: "inherit",
+                  }}
+                >
+                  🗑️ 削除
+                </button>
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {/* 追加・編集フォーム（モーダル風） */}
+      {showForm && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
+        }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowForm(false); }}
+        >
+          <div style={{
+            background: "white", borderRadius: 16, padding: 28,
+            width: "100%", maxWidth: 420, boxShadow: "0 20px 60px rgba(0,0,0,0.2)",
+          }}>
+            <h2 style={{ fontSize: 16, fontWeight: 800, color: "#1e40af", marginBottom: 20 }}>
+              {editingId ? "✏️ カードを編集" : "＋ カードを追加"}
+            </h2>
+
+            {/* カード名 */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: "#374151", fontWeight: 600, display: "block", marginBottom: 5 }}>
+                カード名 <span style={{ color: "#dc2626" }}>*</span>
+              </label>
+              <input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="例：楽天カード、PayPayカード"
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}
+              />
+            </div>
+
+            {/* ポイント還元率 */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: "#374151", fontWeight: 600, display: "block", marginBottom: 5 }}>
+                ポイント還元率（%）
+              </label>
+              <input
+                type="number"
+                min={0}
+                max={30}
+                step={0.5}
+                value={form.pointRate}
+                onChange={(e) => setForm({ ...form, pointRate: Number(e.target.value) })}
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}
+              />
+            </div>
+
+            {/* 限度額 */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: "#374151", fontWeight: 600, display: "block", marginBottom: 5 }}>
+                利用限度額（円、未設定は0）
+              </label>
+              <input
+                type="number"
+                min={0}
+                step={10000}
+                value={form.limit}
+                onChange={(e) => setForm({ ...form, limit: Number(e.target.value) })}
+                style={{ width: "100%", padding: "9px 12px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}
+              />
+            </div>
+
+            {/* カラー */}
+            <div style={{ marginBottom: 22 }}>
+              <label style={{ fontSize: 12, color: "#374151", fontWeight: 600, display: "block", marginBottom: 8 }}>カード色</label>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {COLORS.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setForm({ ...form, color: c })}
+                    title={COLOR_LABELS[c]}
+                    style={{
+                      width: 32, height: 32, borderRadius: "50%",
+                      background: c, border: form.color === c ? "3px solid #1e40af" : "2px solid transparent",
+                      cursor: "pointer", outline: form.color === c ? "2px solid #bfdbfe" : "none",
+                      outlineOffset: 2,
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* プレビュー */}
+            {form.name && (
+              <div style={{
+                height: 60, borderRadius: 10, marginBottom: 18,
+                background: `linear-gradient(135deg, ${form.color} 0%, ${form.color}99 100%)`,
+                display: "flex", alignItems: "flex-end", padding: "10px 14px",
+              }}>
+                <div style={{ color: "white", fontWeight: 900, fontSize: 14, textShadow: "0 1px 3px rgba(0,0,0,0.4)" }}>
+                  {form.name}
+                </div>
+              </div>
+            )}
+
+            {/* ボタン */}
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={() => setShowForm(false)}
+                style={{ flex: 1, padding: "10px 0", borderRadius: 8, border: "1px solid #e2e8f0", background: "white", color: "#374151", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={!form.name.trim() || saving}
+                style={{
+                  flex: 1, padding: "10px 0", borderRadius: 8,
+                  background: form.name.trim() ? "linear-gradient(90deg,#1e40af,#3b82f6)" : "#e2e8f0",
+                  color: form.name.trim() ? "white" : "#94a3b8",
+                  fontSize: 13, fontWeight: 700, border: "none",
+                  cursor: form.name.trim() ? "pointer" : "not-allowed",
+                  fontFamily: "inherit",
+                }}
+              >
+                {saving ? "保存中..." : editingId ? "更新する" : "追加する"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 注意書き */}
+      <div style={{ marginTop: 24, padding: "10px 14px", borderRadius: 8, background: "#eff6ff", border: "1px solid #bfdbfe", fontSize: 12, color: "#1e40af" }}>
+        💡 登録したカードのポイント還元率は商品検索画面の「実質価格」計算に自動反映されます。
       </div>
     </div>
   );
