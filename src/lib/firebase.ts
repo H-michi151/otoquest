@@ -93,28 +93,48 @@ export type CardDoc = {
 
 export async function loadUserCards(uid: string): Promise<CardDoc[]> {
   if (!db) return [];
-  const timeout = new Promise<CardDoc[]>((resolve) =>
-    setTimeout(() => {
-      console.warn("[cards] loadUserCards timeout (5s) — returning empty");
-      resolve([]);
-    }, 5000)
-  );
-  const fetch = (async () => {
-    try {
-      const { collection, getDocs, orderBy, query } = await import("firebase/firestore");
-      const q = query(collection(db!, `users/${uid}/cards`), orderBy("createdAt", "asc"));
-      const snap = await getDocs(q);
-      return snap.docs.map((d) => {
-        const { createdAt: _c, ...rest } = d.data();
-        return rest as CardDoc;
-      });
-    } catch (e) {
-      console.warn("[cards] read error:", e);
-      return [];
+
+  const fetchOnce = (): Promise<CardDoc[] | null> => {
+    const timeout = new Promise<null>((resolve) =>
+      setTimeout(() => {
+        console.warn("[cards] loadUserCards: 1試行タイムアウト (4s)");
+        resolve(null); // null = タイムアウト扱い
+      }, 4000)
+    );
+    const fetch = (async (): Promise<CardDoc[] | null> => {
+      try {
+        const { collection, getDocs, orderBy, query } = await import("firebase/firestore");
+        const q = query(collection(db!, `users/${uid}/cards`), orderBy("createdAt", "asc"));
+        const snap = await getDocs(q);
+        return snap.docs.map((d) => {
+          const { createdAt: _c, ...rest } = d.data();
+          return rest as CardDoc;
+        });
+      } catch (e) {
+        console.warn("[cards] loadUserCards fetch error:", e);
+        return null; // null = エラー扱い（リトライ対象）
+      }
+    })();
+    return Promise.race([fetch, timeout]);
+  };
+
+  // 最大3回リトライ（1秒間隔）
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const result = await fetchOnce();
+    if (result !== null) {
+      // 成功（空配列も含む）— 空配列はFirestoreが本当に空の場合
+      if (attempt > 1) console.log(`[cards] loadUserCards: ${attempt}回目で成功`);
+      return result;
     }
-  })();
-  return Promise.race([fetch, timeout]);
+    if (attempt < 3) {
+      console.warn(`[cards] loadUserCards: ${attempt}回目失敗 → 1秒後にリトライ`);
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+  console.warn("[cards] loadUserCards: 3回試みても取得できず空配列を返す");
+  return [];
 }
+
 
 /** カード1件を追加する */
 export async function addUserCard(uid: string, card: CardDoc): Promise<void> {
