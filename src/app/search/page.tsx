@@ -818,15 +818,14 @@ export default function SearchPage() {
                 {!liveLoading && compareResults.length > 0 && (() => {
                   const ranked = compareResults;
                   const top = ranked[0];
-                  const topReal = top.realPrice;
-                  // 1位との差額でグルーピング
-                  const rakutenBest = ranked.filter(r => r.source === "楽天市場").sort((a,b)=>a.realPrice-b.realPrice)[0];
-                  const yahooBest  = ranked.filter(r => r.source === "Yahoo!ショッピング").sort((a,b)=>a.realPrice-b.realPrice)[0];
+                  // 1位との差額でグルーピング（表示価格ベース）
+                  const rakutenBest = ranked.filter(r => r.source === "楽天市場").sort((a,b)=>a.price-b.price)[0];
+                  const yahooBest  = ranked.filter(r => r.source === "Yahoo!ショッピング").sort((a,b)=>a.price-b.price)[0];
 
                   // 推奨先サマリー
                   const winner = top.source;
                   const diff = rakutenBest && yahooBest
-                    ? Math.abs(rakutenBest.realPrice - yahooBest.realPrice)
+                    ? Math.abs(rakutenBest.price - yahooBest.price)
                     : null;
                   const isDraw = diff !== null && diff <= 100;
 
@@ -879,7 +878,7 @@ export default function SearchPage() {
                           <tbody>
                             {ranked.map((item, i) => {
                               const isTop = i === 0;
-                              const gapFromTop = item.realPrice - topReal;
+                              const gapFromTop = item.price - top.price;
                               const srcColor = item.source === "楽天市場" ? "#cc0000" : "#1a237e";
                               const srcBg    = item.source === "楽天市場" ? "#fff5f5" : "#f0f4ff";
                               return (
