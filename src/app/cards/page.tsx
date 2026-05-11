@@ -49,8 +49,9 @@ export default function CardsPage() {
       setCards(next);
       setSaveMsg("✅ 保存しました");
       setTimeout(() => setSaveMsg(""), 2000);
-    } catch {
-      setSaveMsg("❌ 保存に失敗しました");
+    } catch (e) {
+      console.error("[cards] saveUserCards failed:", e);
+      setSaveMsg(`❌ 保存に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setSaving(false);
     }
