@@ -68,21 +68,34 @@ export default function CardsPage() {
     setShowForm(false);
     try {
       if (editingId) {
-        // 更新: 1件だけsetDoc
-        await updateUserCard(user.uid, { id: editingId, ...form });
+        const updated: CardDoc = { id: editingId, ...form };
+        // ① 楽観的更新（即時UI反映）
+        setCards((prev) => prev.map((c) => c.id === editingId ? updated : c));
+        // ② Firestoreに書き込み
+        await updateUserCard(user.uid, updated);
       } else {
-        // 追加: 1件だけsetDoc
         const id = `card_${Date.now()}`;
-        await addUserCard(user.uid, { id, ...form });
+        const newCard: CardDoc = { id, ...form };
+        // ① 楽観的更新（即時UI反映）
+        setCards((prev) => [...prev, newCard]);
+        // ② Firestoreに書き込み
+        await addUserCard(user.uid, newCard);
       }
-      // 成功後はFirestoreから再取得してstateを確実に同期
-      const refreshed = await loadUserCards(user.uid);
-      setCards(refreshed);
       setSaveMsg("✅ 保存しました");
       setTimeout(() => setSaveMsg(""), 2000);
+      // ③ 書き込み完了後にFirestoreから再取得してサーバー値で同期
+      //    （書き込み直後は若干の遅延が必要な場合あり）
+      setTimeout(async () => {
+        if (!user) return;
+        const refreshed = await loadUserCards(user.uid);
+        if (refreshed.length > 0) setCards(refreshed);
+      }, 800);
     } catch (e) {
       console.error("[cards] save failed:", e);
       setSaveMsg(`❌ 保存に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+      // ロールバック: Firestoreから最新を取得して整合性を回復
+      const rollback = await loadUserCards(user.uid);
+      setCards(rollback);
     } finally {
       setSaving(false);
     }
