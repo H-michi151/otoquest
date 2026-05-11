@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { saveUserCards, type CardDoc } from "@/lib/firebase";
+import { addUserCard, type CardDoc } from "@/lib/firebase";
 import { type Card } from "@/app/settings/page";
 
 // ===== 型 =====
@@ -72,7 +72,7 @@ export default function OnboardingPage() {
         color: c.color,
       }));
       if (user) {
-        await saveUserCards(user.uid, saved as CardDoc[]);
+        await Promise.all(saved.map((c) => addUserCard(user.uid, c as CardDoc)));
       } else {
         console.warn("[Onboarding] userがnullのためFirestore保存をスキップ");
       }

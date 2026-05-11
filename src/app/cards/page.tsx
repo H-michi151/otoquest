@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { loadUserCards, saveUserCards, type CardDoc } from "@/lib/firebase";
+import { loadUserCards, addUserCard, updateUserCard, deleteUserCard, type CardDoc } from "@/lib/firebase";
 
 const COLORS = ["#cc0000", "#1a237e", "#1b5e20", "#4a148c", "#e65100", "#006064", "#37474f"];
 const COLOR_LABELS: Record<string, string> = {
@@ -48,23 +48,7 @@ export default function CardsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  const persistCards = async (next: CardDoc[]) => {
-    if (!user) return;
-    setSaving(true);
-    try {
-      await saveUserCards(user.uid, next);
-      // 保存後はFirestoreから再取得してstateを確実に同期させる
-      const refreshed = await loadUserCards(user.uid);
-      setCards(refreshed);
-      setSaveMsg("✅ 保存しました");
-      setTimeout(() => setSaveMsg(""), 2000);
-    } catch (e) {
-      console.error("[cards] saveUserCards failed:", e);
-      setSaveMsg(`❌ 保存に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setSaving(false);
-    }
-  };
+
 
   const openAdd = () => {
     setEditingId(null);
@@ -79,21 +63,44 @@ export default function CardsPage() {
   };
 
   const handleSubmit = async () => {
-    if (!form.name.trim()) return;
-    let next: CardDoc[];
-    if (editingId) {
-      next = cards.map((c) => c.id === editingId ? { id: editingId, ...form } : c);
-    } else {
-      const id = `card_${Date.now()}`;
-      next = [...cards, { id, ...form }];
-    }
-    await persistCards(next);
+    if (!form.name.trim() || !user) return;
+    setSaving(true);
     setShowForm(false);
+    try {
+      if (editingId) {
+        // 更新: 1件だけsetDoc
+        await updateUserCard(user.uid, { id: editingId, ...form });
+      } else {
+        // 追加: 1件だけsetDoc
+        const id = `card_${Date.now()}`;
+        await addUserCard(user.uid, { id, ...form });
+      }
+      // 成功後はFirestoreから再取得してstateを確実に同期
+      const refreshed = await loadUserCards(user.uid);
+      setCards(refreshed);
+      setSaveMsg("✅ 保存しました");
+      setTimeout(() => setSaveMsg(""), 2000);
+    } catch (e) {
+      console.error("[cards] save failed:", e);
+      setSaveMsg(`❌ 保存に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("このカードを削除しますか？")) return;
-    await persistCards(cards.filter((c) => c.id !== id));
+    if (!confirm("このカードを削除しますか？") || !user) return;
+    setSaving(true);
+    try {
+      // 削除: 1件だけdeleteDoc
+      await deleteUserCard(user.uid, id);
+      setCards((prev) => prev.filter((c) => c.id !== id));
+    } catch (e) {
+      console.error("[cards] delete failed:", e);
+      setSaveMsg(`❌ 削除に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (loading) {

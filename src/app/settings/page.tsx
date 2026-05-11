@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { loadUserCards, saveUserCards, type CardDoc } from "@/lib/firebase";
+import { loadUserCards, addUserCard, updateUserCard, deleteUserCard, type CardDoc } from "@/lib/firebase";
 
 const STORAGE_KEY = "otoquest_user_settings";
 
@@ -98,15 +98,11 @@ export default function SettingsPage() {
     }, 800);
   };
 
-  // ===== カード操作 =====
-  const persistCards = (next: Card[]) => {
-    if (user) saveUserCards(user.uid, next as CardDoc[]);
-  };
-
-  const handleDeleteCard = (id: string) => {
-    const next = cards.filter((c) => c.id !== id);
-    setCards(next);
-    persistCards(next);
+  // ===== カード操作（個別CRUD）=====
+  const handleDeleteCard = async (id: string) => {
+    if (!user) return;
+    await deleteUserCard(user.uid, id);
+    setCards((prev) => prev.filter((c) => c.id !== id));
   };
 
   const handleStartEdit = (card: Card) => {
@@ -115,22 +111,19 @@ export default function SettingsPage() {
     setShowAdd(false);
   };
 
-  const handleSaveEdit = () => {
-    if (!editingId) return;
-    const next = cards.map((c) =>
-      c.id === editingId ? { ...c, ...editForm } : c
-    );
-    setCards(next);
-    persistCards(next);
+  const handleSaveEdit = async () => {
+    if (!editingId || !user) return;
+    const updated: Card = { id: editingId, ...editForm };
+    await updateUserCard(user.uid, updated as CardDoc);
+    setCards((prev) => prev.map((c) => c.id === editingId ? updated : c));
     setEditingId(null);
   };
 
-  const handleAddCard = () => {
-    if (!addForm.name.trim()) return;
+  const handleAddCard = async () => {
+    if (!addForm.name.trim() || !user) return;
     const newCard: Card = { id: `card_${Date.now()}`, ...addForm };
-    const next = [...cards, newCard];
-    setCards(next);
-    persistCards(next);
+    await addUserCard(user.uid, newCard as CardDoc);
+    setCards((prev) => [...prev, newCard]);
     setAddForm(BLANK_CARD);
     setShowAdd(false);
   };

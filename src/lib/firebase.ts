@@ -116,22 +116,32 @@ export async function loadUserCards(uid: string): Promise<CardDoc[]> {
   return Promise.race([fetch, timeout]);
 }
 
-export async function saveUserCards(uid: string, cards: CardDoc[]): Promise<void> {
+/** カード1件を追加する */
+export async function addUserCard(uid: string, card: CardDoc): Promise<void> {
   if (!db) { console.warn("[cards] db is null"); return; }
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error("saveUserCards timeout")), 15000)
+  const { collection, doc, setDoc, Timestamp } = await import("firebase/firestore");
+  await setDoc(
+    doc(collection(db, `users/${uid}/cards`), card.id),
+    { ...card, createdAt: Timestamp.now() }
   );
-  const write = async () => {
-    const { collection, doc, setDoc, deleteDoc, getDocs, Timestamp } = await import("firebase/firestore");
-    const colRef = collection(db!, `users/${uid}/cards`);
-    const existing = await getDocs(colRef);
-    await Promise.all(existing.docs.map((d) => deleteDoc(d.ref)));
-    await Promise.all(cards.map((c) =>
-      setDoc(doc(colRef, c.id), { ...c, createdAt: Timestamp.now() })
-    ));
-  };
-  // write() は Promise を返すので race で正しくエラーが伝播する
-  await Promise.race([write(), timeout]);
+}
+
+/** カード1件を更新する */
+export async function updateUserCard(uid: string, card: CardDoc): Promise<void> {
+  if (!db) { console.warn("[cards] db is null"); return; }
+  const { collection, doc, setDoc, Timestamp } = await import("firebase/firestore");
+  await setDoc(
+    doc(collection(db, `users/${uid}/cards`), card.id),
+    { ...card, createdAt: Timestamp.now() },
+    { merge: true }
+  );
+}
+
+/** カード1件を削除する */
+export async function deleteUserCard(uid: string, cardId: string): Promise<void> {
+  if (!db) { console.warn("[cards] db is null"); return; }
+  const { collection, doc, deleteDoc } = await import("firebase/firestore");
+  await deleteDoc(doc(collection(db, `users/${uid}/cards`), cardId));
 }
 
 // ===== 購入履歴（Firestore）=====
