@@ -93,15 +93,27 @@ export type CardDoc = {
 
 export async function loadUserCards(uid: string): Promise<CardDoc[]> {
   if (!db) return [];
-  try {
-    const { collection, getDocs, orderBy, query } = await import("firebase/firestore");
-    const q = query(collection(db, `users/${uid}/cards`), orderBy("createdAt", "asc"));
-    const snap = await getDocs(q);
-    return snap.docs.map((d) => {
-      const { createdAt: _c, ...rest } = d.data();
-      return rest as CardDoc;
-    });
-  } catch (e) { console.warn("[cards] read error:", e); return []; }
+  const timeout = new Promise<CardDoc[]>((resolve) =>
+    setTimeout(() => {
+      console.warn("[cards] loadUserCards timeout (5s) — returning empty");
+      resolve([]);
+    }, 5000)
+  );
+  const fetch = (async () => {
+    try {
+      const { collection, getDocs, orderBy, query } = await import("firebase/firestore");
+      const q = query(collection(db!, `users/${uid}/cards`), orderBy("createdAt", "asc"));
+      const snap = await getDocs(q);
+      return snap.docs.map((d) => {
+        const { createdAt: _c, ...rest } = d.data();
+        return rest as CardDoc;
+      });
+    } catch (e) {
+      console.warn("[cards] read error:", e);
+      return [];
+    }
+  })();
+  return Promise.race([fetch, timeout]);
 }
 
 export async function saveUserCards(uid: string, cards: CardDoc[]): Promise<void> {

@@ -31,14 +31,21 @@ export default function CardsPage() {
   const [form, setForm] = useState<Omit<CardDoc, "id">>(EMPTY_FORM);
   const [saveMsg, setSaveMsg] = useState("");
 
-  // Firestoreから読み込み
+  // Firestoreから再取得
+  const reloadCards = async (uid: string) => {
+    setLoading(true);
+    try {
+      const docs = await loadUserCards(uid);
+      setCards(docs);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!user) return;
-    setLoading(true);
-    loadUserCards(user.uid).then((docs) => {
-      setCards(docs);
-      setLoading(false);
-    });
+    reloadCards(user.uid);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const persistCards = async (next: CardDoc[]) => {
@@ -46,7 +53,9 @@ export default function CardsPage() {
     setSaving(true);
     try {
       await saveUserCards(user.uid, next);
-      setCards(next);
+      // 保存後はFirestoreから再取得してstateを確実に同期させる
+      const refreshed = await loadUserCards(user.uid);
+      setCards(refreshed);
       setSaveMsg("✅ 保存しました");
       setTimeout(() => setSaveMsg(""), 2000);
     } catch (e) {
