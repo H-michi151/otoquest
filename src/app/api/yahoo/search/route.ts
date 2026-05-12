@@ -36,11 +36,12 @@ export async function GET(request: NextRequest) {
   }
 
   const params = new URLSearchParams({
-    appid:   appId,
-    query:   keyword,
-    results: String(hits),
-    sort:    "-score",          // 関連度順
-    image_size: "300",          // サムネイル画像サイズ
+    appid:      appId,
+    query:      keyword,
+    results:    String(hits),
+    sort:       "-score",          // 関連度順
+    image_size: "300",             // サムネイル画像サイズ
+    condition:  "new",             // 新品のみ（中古品をAPIレベルで除外）
   });
 
   const url = `${YAHOO_API}?${params.toString()}`;
@@ -78,7 +79,9 @@ export async function GET(request: NextRequest) {
     // { hits: [ { name, seller: { name }, price, point: { amount, premiumAmount },
     //             url, image: { medium } }, ... ], totalResultsReturned, totalResultsAvailable }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const items: any[] = raw.hits ?? [];
+    const allItems: any[] = raw.hits ?? [];
+    // 中古品を除外（conditionフィールドが存在する場合のusedをフィルタリング）
+    const items = allItems.filter((item) => item.condition !== "used");
 
     return NextResponse.json({
       source:     "Yahoo!ショッピング",
