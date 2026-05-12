@@ -122,8 +122,6 @@ export async function loadUserCards(uid: string): Promise<CardDoc[]> {
   for (let attempt = 1; attempt <= 3; attempt++) {
     const result = await fetchOnce();
     if (result !== null) {
-      // 成功（空配列も含む）— 空配列はFirestoreが本当に空の場合
-      if (attempt > 1) console.log(`[cards] loadUserCards: ${attempt}回目で成功`);
       return result;
     }
     if (attempt < 3) {
@@ -139,14 +137,12 @@ export async function loadUserCards(uid: string): Promise<CardDoc[]> {
 /** カード1件を追加する */
 export async function addUserCard(uid: string, card: CardDoc): Promise<void> {
   if (!db) { console.warn("[cards] db is null"); return; }
-  console.log("[addUserCard] uid:", uid, "card:", card);
   try {
     const { collection, doc, setDoc, Timestamp } = await import("firebase/firestore");
     await setDoc(
       doc(collection(db, `users/${uid}/cards`), card.id),
       { ...card, createdAt: Timestamp.now() }
     );
-    console.log("[addUserCard] 完了:", card.id);
   } catch (e) {
     console.error("[addUserCard] setDoc失敗:", e);
     throw e;
@@ -156,7 +152,6 @@ export async function addUserCard(uid: string, card: CardDoc): Promise<void> {
 /** カード1件を更新する */
 export async function updateUserCard(uid: string, card: CardDoc): Promise<void> {
   if (!db) { console.warn("[cards] db is null"); return; }
-  console.log("[updateUserCard] uid:", uid, "card:", card);
   try {
     const { collection, doc, setDoc, Timestamp } = await import("firebase/firestore");
     await setDoc(
@@ -164,7 +159,6 @@ export async function updateUserCard(uid: string, card: CardDoc): Promise<void> 
       { ...card, createdAt: Timestamp.now() },
       { merge: true }
     );
-    console.log("[updateUserCard] 完了:", card.id);
   } catch (e) {
     console.error("[updateUserCard] setDoc失敗:", e);
     throw e;
@@ -174,11 +168,9 @@ export async function updateUserCard(uid: string, card: CardDoc): Promise<void> 
 /** カード1件を削除する */
 export async function deleteUserCard(uid: string, cardId: string): Promise<void> {
   if (!db) { console.warn("[cards] db is null"); return; }
-  console.log("[deleteUserCard] uid:", uid, "cardId:", cardId);
   try {
     const { collection, doc, deleteDoc } = await import("firebase/firestore");
     await deleteDoc(doc(collection(db, `users/${uid}/cards`), cardId));
-    console.log("[deleteUserCard] 完了:", cardId);
   } catch (e) {
     console.error("[deleteUserCard] deleteDoc失敗:", e);
     throw e;
