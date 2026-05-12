@@ -33,7 +33,7 @@ if (isConfigured) {
   // experimentalAutoDetectLongPolling: Vercel環境でのWebSocket接続ハングを回避
   // 既存のFirestoreインスタンスがあればそれを使用する
   try {
-    db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+    db = initializeFirestore(app, { experimentalForceLongPolling: true });
   } catch {
     // 既に初期化済みの場合は getFirestore で取得
     db = getFirestore(app);
