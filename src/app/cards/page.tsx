@@ -1,7 +1,54 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useAuth } from "@/context/AuthContext";
-import { loadUserCards, addUserCard, updateUserCard, deleteUserCard, type CardDoc } from "@/lib/firebase";
+import { getIdToken } from "firebase/auth";
+import type { CardDoc } from "@/lib/firebase";
+
+// ===== APIヘルパー =====
+async function authHeader(user: NonNullable<ReturnType<typeof useAuth>["user"]>) {
+  const token = await getIdToken(user);
+  return {
+    "Authorization": `Bearer ${token}`,
+    "Content-Type": "application/json",
+  };
+}
+
+async function apiFetchCards(user: NonNullable<ReturnType<typeof useAuth>["user"]>): Promise<CardDoc[]> {
+  const headers = await authHeader(user);
+  const res = await fetch("/api/cards", { headers });
+  if (!res.ok) throw new Error(`GET /api/cards: ${res.status}`);
+  const data = await res.json() as { cards: CardDoc[] };
+  return data.cards;
+}
+
+async function apiAddCard(user: NonNullable<ReturnType<typeof useAuth>["user"]>, card: CardDoc): Promise<void> {
+  const headers = await authHeader(user);
+  const res = await fetch("/api/cards", {
+    method: "POST",
+    headers,
+    body: JSON.stringify(card),
+  });
+  if (!res.ok) throw new Error(`POST /api/cards: ${res.status}`);
+}
+
+async function apiUpdateCard(user: NonNullable<ReturnType<typeof useAuth>["user"]>, card: CardDoc): Promise<void> {
+  const headers = await authHeader(user);
+  const res = await fetch(`/api/cards/${card.id}`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify(card),
+  });
+  if (!res.ok) throw new Error(`PUT /api/cards/${card.id}: ${res.status}`);
+}
+
+async function apiDeleteCard(user: NonNullable<ReturnType<typeof useAuth>["user"]>, id: string): Promise<void> {
+  const headers = await authHeader(user);
+  const res = await fetch(`/api/cards/${id}`, {
+    method: "DELETE",
+    headers,
+  });
+  if (!res.ok) throw new Error(`DELETE /api/cards/${id}: ${res.status}`);
+}
 
 const COLORS = ["#cc0000", "#1a237e", "#1b5e20", "#4a148c", "#e65100", "#006064", "#37474f"];
 const COLOR_LABELS: Record<string, string> = {
@@ -31,12 +78,15 @@ export default function CardsPage() {
   const [form, setForm] = useState<Omit<CardDoc, "id">>(EMPTY_FORM);
   const [saveMsg, setSaveMsg] = useState("");
 
-  // Firestoreから再取得
-  const reloadCards = async (uid: string) => {
+  // API経由でカード再取得
+  const reloadCards = async () => {
+    if (!user) return;
     setLoading(true);
     try {
-      const docs = await loadUserCards(uid);
+      const docs = await apiFetchCards(user);
       setCards(docs);
+    } catch (e) {
+      console.error("[cards] reloadCards failed:", e);
     } finally {
       setLoading(false);
     }
@@ -44,7 +94,7 @@ export default function CardsPage() {
 
   useEffect(() => {
     if (!user) return;
-    reloadCards(user.uid);
+    reloadCards();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
@@ -71,31 +121,25 @@ export default function CardsPage() {
         const updated: CardDoc = { id: editingId, ...form };
         // ① 楽観的更新（即時UI反映）
         setCards((prev) => prev.map((c) => c.id === editingId ? updated : c));
-        // ② Firestoreに書き込み
-        await updateUserCard(user.uid, updated);
+        // ② APIルート経由で更新
+        await apiUpdateCard(user, updated);
       } else {
         const id = `card_${Date.now()}`;
         const newCard: CardDoc = { id, ...form };
         // ① 楽観的更新（即時UI反映）
         setCards((prev) => [...prev, newCard]);
-        // ② Firestoreに書き込み
-        await addUserCard(user.uid, newCard);
+        // ② APIルート経由で追加
+        await apiAddCard(user, newCard);
       }
       setSaveMsg("✅ 保存しました");
       setTimeout(() => setSaveMsg(""), 2000);
-      // ③ 書き込み完了後にFirestoreから再取得してサーバー値で同期
-      //    （書き込み直後は若干の遅延が必要な場合あり）
-      setTimeout(async () => {
-        if (!user) return;
-        const refreshed = await loadUserCards(user.uid);
-        if (refreshed.length > 0) setCards(refreshed);
-      }, 800);
+      // ③ 書き込み後にサーバーから再取得して同期
+      setTimeout(() => reloadCards(), 800);
     } catch (e) {
       console.error("[cards] save failed:", e);
       setSaveMsg(`❌ 保存に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
-      // ロールバック: Firestoreから最新を取得して整合性を回復
-      const rollback = await loadUserCards(user.uid);
-      setCards(rollback);
+      // ロールバック
+      reloadCards();
     } finally {
       setSaving(false);
     }
@@ -105,12 +149,15 @@ export default function CardsPage() {
     if (!confirm("このカードを削除しますか？") || !user) return;
     setSaving(true);
     try {
-      // 削除: 1件だけdeleteDoc
-      await deleteUserCard(user.uid, id);
+      // 楽観的更新
       setCards((prev) => prev.filter((c) => c.id !== id));
+      // APIルート経由で削除
+      await apiDeleteCard(user, id);
     } catch (e) {
       console.error("[cards] delete failed:", e);
       setSaveMsg(`❌ 削除に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
+      // ロールバック
+      reloadCards();
     } finally {
       setSaving(false);
     }
