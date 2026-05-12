@@ -37,9 +37,13 @@ if (isAdminConfigured) {
   }
   adminDb = getFirestore(adminApp);
 } else {
+  const missing = [
+    !projectId   && "FIREBASE_ADMIN_PROJECT_ID",
+    !clientEmail && "FIREBASE_ADMIN_CLIENT_EMAIL",
+    !privateKey  && "FIREBASE_ADMIN_PRIVATE_KEY",
+  ].filter(Boolean);
   console.warn(
-    "[firebaseAdmin] 環境変数が未設定のためAdmin SDKを初期化しません。\n" +
-    "  必要な変数: FIREBASE_ADMIN_PROJECT_ID, FIREBASE_ADMIN_CLIENT_EMAIL, FIREBASE_ADMIN_PRIVATE_KEY"
+    `[firebaseAdmin] 以下の環境変数が未設定のためAdmin SDKを初期化しません: ${missing.join(", ")}`
   );
 }
 
