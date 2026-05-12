@@ -6,7 +6,7 @@
  */
 
 import { initializeApp, getApps, type FirebaseApp } from "firebase/app";
-import { getFirestore, type Firestore } from "firebase/firestore";
+import { initializeFirestore, getFirestore, type Firestore } from "firebase/firestore";
 import { getAuth, GoogleAuthProvider, type Auth } from "firebase/auth";
 
 const firebaseConfig = {
@@ -30,7 +30,14 @@ if (isConfigured) {
   app = getApps().length === 0
     ? initializeApp(firebaseConfig)
     : getApps()[0];
-  db = getFirestore(app);
+  // experimentalAutoDetectLongPolling: Vercel環境でのWebSocket接続ハングを回避
+  // 既存のFirestoreインスタンスがあればそれを使用する
+  try {
+    db = initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+  } catch {
+    // 既に初期化済みの場合は getFirestore で取得
+    db = getFirestore(app);
+  }
   auth = getAuth(app);
 }
 
@@ -134,17 +141,27 @@ export async function loadUserCards(uid: string): Promise<CardDoc[]> {
 }
 
 
+/** 書き込み共通タイムアウト（8秒）*/
+function withWriteTimeout<T>(promise: Promise<T>): Promise<T> {
+  const timeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("Firestore書き込みタイムアウト（8s）")), 8000)
+  );
+  return Promise.race([promise, timeout]);
+}
+
 /** カード1件を追加する */
 export async function addUserCard(uid: string, card: CardDoc): Promise<void> {
   if (!db) { console.warn("[cards] db is null"); return; }
   try {
     const { collection, doc, setDoc, Timestamp } = await import("firebase/firestore");
-    await setDoc(
-      doc(collection(db, `users/${uid}/cards`), card.id),
-      { ...card, createdAt: Timestamp.now() }
+    await withWriteTimeout(
+      setDoc(
+        doc(collection(db, `users/${uid}/cards`), card.id),
+        { ...card, createdAt: Timestamp.now() }
+      )
     );
   } catch (e) {
-    console.error("[addUserCard] setDoc失敗:", e);
+    console.error("[addUserCard] 失敗:", e);
     throw e;
   }
 }
@@ -154,13 +171,15 @@ export async function updateUserCard(uid: string, card: CardDoc): Promise<void> 
   if (!db) { console.warn("[cards] db is null"); return; }
   try {
     const { collection, doc, setDoc, Timestamp } = await import("firebase/firestore");
-    await setDoc(
-      doc(collection(db, `users/${uid}/cards`), card.id),
-      { ...card, createdAt: Timestamp.now() },
-      { merge: true }
+    await withWriteTimeout(
+      setDoc(
+        doc(collection(db, `users/${uid}/cards`), card.id),
+        { ...card, createdAt: Timestamp.now() },
+        { merge: true }
+      )
     );
   } catch (e) {
-    console.error("[updateUserCard] setDoc失敗:", e);
+    console.error("[updateUserCard] 失敗:", e);
     throw e;
   }
 }
@@ -170,9 +189,11 @@ export async function deleteUserCard(uid: string, cardId: string): Promise<void>
   if (!db) { console.warn("[cards] db is null"); return; }
   try {
     const { collection, doc, deleteDoc } = await import("firebase/firestore");
-    await deleteDoc(doc(collection(db, `users/${uid}/cards`), cardId));
+    await withWriteTimeout(
+      deleteDoc(doc(collection(db, `users/${uid}/cards`), cardId))
+    );
   } catch (e) {
-    console.error("[deleteUserCard] deleteDoc失敗:", e);
+    console.error("[deleteUserCard] 失敗:", e);
     throw e;
   }
 }
