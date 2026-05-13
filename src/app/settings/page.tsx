@@ -2,7 +2,37 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { loadUserCards, addUserCard, updateUserCard, deleteUserCard, type CardDoc } from "@/lib/firebase";
+import { getIdToken } from "firebase/auth";
+import type { CardDoc } from "@/lib/firebase";
+
+// ===== APIヘルパー =====
+type AuthUser = NonNullable<ReturnType<typeof import("@/context/AuthContext").useAuth>["user"]>;
+async function cardAuthHeader(user: AuthUser) {
+  const token = await getIdToken(user);
+  return { "Authorization": `Bearer ${token}`, "Content-Type": "application/json" };
+}
+async function apiFetchCards(user: AuthUser): Promise<CardDoc[]> {
+  const headers = await cardAuthHeader(user);
+  const res = await fetch("/api/cards", { headers });
+  if (!res.ok) throw new Error(`GET /api/cards: ${res.status}`);
+  return ((await res.json()) as { cards: CardDoc[] }).cards;
+}
+async function apiAddCard(user: AuthUser, card: CardDoc): Promise<void> {
+  const headers = await cardAuthHeader(user);
+  const res = await fetch("/api/cards", { method: "POST", headers, body: JSON.stringify(card) });
+  if (!res.ok) throw new Error(`POST /api/cards: ${res.status}`);
+}
+async function apiUpdateCard(user: AuthUser, card: CardDoc): Promise<void> {
+  const headers = await cardAuthHeader(user);
+  const res = await fetch(`/api/cards/${card.id}`, { method: "PUT", headers, body: JSON.stringify(card) });
+  if (!res.ok) throw new Error(`PUT /api/cards/${card.id}: ${res.status}`);
+}
+async function apiDeleteCard(user: AuthUser, id: string): Promise<void> {
+  const headers = await cardAuthHeader(user);
+  const res = await fetch(`/api/cards/${id}`, { method: "DELETE", headers });
+  if (!res.ok) throw new Error(`DELETE /api/cards/${id}: ${res.status}`);
+}
+
 
 const STORAGE_KEY = "otoquest_user_settings";
 
@@ -83,7 +113,9 @@ export default function SettingsPage() {
   useEffect(() => {
     setSettings(loadSettings());
     if (user) {
-      loadUserCards(user.uid).then((docs) => setCards(docs as Card[]));
+      apiFetchCards(user)
+        .then((docs) => setCards(docs as Card[]))
+        .catch((e) => console.error("[settings] loadCards failed:", e));
     }
   }, [user]);
 
@@ -98,11 +130,15 @@ export default function SettingsPage() {
     }, 800);
   };
 
-  // ===== カード操作（個別CRUD）=====
+  // ===== カード操作（APIルート経由）=====
   const handleDeleteCard = async (id: string) => {
     if (!user) return;
-    await deleteUserCard(user.uid, id);
-    setCards((prev) => prev.filter((c) => c.id !== id));
+    try {
+      await apiDeleteCard(user, id);
+      setCards((prev) => prev.filter((c) => c.id !== id));
+    } catch (e) {
+      console.error("[settings] deleteCard failed:", e);
+    }
   };
 
   const handleStartEdit = (card: Card) => {
@@ -114,18 +150,26 @@ export default function SettingsPage() {
   const handleSaveEdit = async () => {
     if (!editingId || !user) return;
     const updated: Card = { id: editingId, ...editForm };
-    await updateUserCard(user.uid, updated as CardDoc);
-    setCards((prev) => prev.map((c) => c.id === editingId ? updated : c));
-    setEditingId(null);
+    try {
+      await apiUpdateCard(user, updated as CardDoc);
+      setCards((prev) => prev.map((c) => c.id === editingId ? updated : c));
+      setEditingId(null);
+    } catch (e) {
+      console.error("[settings] updateCard failed:", e);
+    }
   };
 
   const handleAddCard = async () => {
     if (!addForm.name.trim() || !user) return;
     const newCard: Card = { id: `card_${Date.now()}`, ...addForm };
-    await addUserCard(user.uid, newCard as CardDoc);
-    setCards((prev) => [...prev, newCard]);
-    setAddForm(BLANK_CARD);
-    setShowAdd(false);
+    try {
+      await apiAddCard(user, newCard as CardDoc);
+      setCards((prev) => [...prev, newCard]);
+      setAddForm(BLANK_CARD);
+      setShowAdd(false);
+    } catch (e) {
+      console.error("[settings] addCard failed:", e);
+    }
   };
 
   // インライン入力スタイル共通

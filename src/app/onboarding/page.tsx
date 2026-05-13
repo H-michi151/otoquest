@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { addUserCard, type CardDoc } from "@/lib/firebase";
+import { getIdToken } from "firebase/auth";
 import { type Card } from "@/app/settings/page";
 
 // ===== 型 =====
@@ -72,7 +72,21 @@ export default function OnboardingPage() {
         color: c.color,
       }));
       if (user) {
-        await Promise.all(saved.map((c) => addUserCard(user.uid, c as CardDoc)));
+        const token = await getIdToken(user);
+        await Promise.all(
+          saved.map((c) =>
+            fetch("/api/cards", {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(c),
+            }).then((res) => {
+              if (!res.ok) throw new Error(`POST /api/cards: ${res.status}`);
+            })
+          )
+        );
       } else {
         console.warn("[Onboarding] userがnullのためFirestore保存をスキップ");
       }
