@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback, useRef } from "react";
-import { getKakakuPrice, isStalePrice, loadUserCards, addUserPurchase, addUserWatchlistItem, type KakakuPrice } from "@/lib/firebase";
+import { getKakakuPrice, isStalePrice, addUserPurchase, addUserWatchlistItem, type KakakuPrice } from "@/lib/firebase";
+import { getIdToken } from "firebase/auth";
 import {
   enrichItem,
   enrichItemWithLocalCards,
@@ -112,12 +113,17 @@ export default function SearchPage() {
   const [allUserCardObjects, setAllUserCardObjects] = useState<{ name: string; pointRate: number }[]>([]);
   useEffect(() => {
     if (!user) return;
-    loadUserCards(user.uid).then((docs) => {
-      if (docs.length > 0) {
-        setUserCardNamesFromStorage(docs.map((c) => c.name));
-        setAllUserCardObjects(docs.map((c) => ({ name: c.name, pointRate: c.pointRate })));
-      }
-    });
+    getIdToken(user).then((token) =>
+      fetch("/api/cards", { headers: { Authorization: `Bearer ${token}` } })
+        .then((res) => res.json())
+        .then((data: { cards: { name: string; pointRate: number; id: string }[] }) => {
+          if (data.cards && data.cards.length > 0) {
+            setUserCardNamesFromStorage(data.cards.map((c) => c.name));
+            setAllUserCardObjects(data.cards.map((c) => ({ name: c.name, pointRate: c.pointRate })));
+          }
+        })
+        .catch((e) => console.error("[search] loadCards failed:", e))
+    );
   }, [user]);
 
   const userCards = cardPresetKey === "全カード（デフォルト）" ? userCardNamesFromStorage : (CARD_PRESETS[cardPresetKey] ?? userCardNamesFromStorage);

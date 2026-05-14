@@ -3,7 +3,8 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { loadSettings, type UserSettings, defaultSettings } from "@/app/settings/page";
 import { type Card } from "@/app/settings/page";
-import { getKakakuPrice, loadUserCards, addUserPurchase } from "@/lib/firebase";
+import { getKakakuPrice, addUserPurchase } from "@/lib/firebase";
+import { getIdToken } from "firebase/auth";
 import { useAuth } from "@/context/AuthContext";
 
 // ===== 価格.com URL生成 =====
@@ -113,10 +114,17 @@ export default function ComparePage() {
   useEffect(() => {
     setSettings(loadSettings());
     if (user) {
-      loadUserCards(user.uid).then((docs) => {
-        setCards(docs as Card[]);
-        if (docs.length > 0) setSelectedCardId(docs[0].id);
-      });
+      getIdToken(user).then((token) =>
+        fetch("/api/cards", { headers: { Authorization: `Bearer ${token}` } })
+          .then((res) => res.json())
+          .then((data: { cards: Card[] }) => {
+            if (data.cards) {
+              setCards(data.cards);
+              if (data.cards.length > 0) setSelectedCardId(data.cards[0].id);
+            }
+          })
+          .catch((e) => console.error("[compare] loadCards failed:", e))
+      );
     }
   }, [user]);
 
