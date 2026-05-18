@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { getIdToken } from "firebase/auth";
@@ -31,6 +31,25 @@ async function apiDeleteCard(user: AuthUser, id: string): Promise<void> {
   const headers = await cardAuthHeader(user);
   const res = await fetch(`/api/cards/${id}`, { method: "DELETE", headers });
   if (!res.ok) throw new Error(`DELETE /api/cards/${id}: ${res.status}`);
+}
+
+// ===== 返済API =====
+interface RepaymentRecord { id: string; amount: number; date: string; note: string | null; }
+async function apiFetchRepayments(user: AuthUser, cardId: string, month: string): Promise<RepaymentRecord[]> {
+  const headers = await cardAuthHeader(user);
+  const res = await fetch(`/api/repayments?cardId=${encodeURIComponent(cardId)}&month=${month}`, { headers });
+  if (!res.ok) throw new Error(`GET /api/repayments: ${res.status}`);
+  return ((await res.json()) as { repayments: RepaymentRecord[] }).repayments;
+}
+async function apiPostRepayment(user: AuthUser, cardId: string, amount: number): Promise<void> {
+  const headers = await cardAuthHeader(user);
+  const res = await fetch("/api/repayments", { method: "POST", headers, body: JSON.stringify({ cardId, amount }) });
+  if (!res.ok) throw new Error(`POST /api/repayments: ${res.status}`);
+}
+
+function currentYearMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
 
@@ -110,14 +129,40 @@ export default function SettingsPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [addForm, setAddForm] = useState<Omit<Card, "id">>(BLANK_CARD);
 
+  // 体力パネル state
+  const [repaymentMap, setRepaymentMap] = useState<Record<string, RepaymentRecord[]>>({});
+  const [recoverModal, setRecoverModal] = useState<{ cardId: string; cardName: string } | null>(null);
+  const [repayAmount, setRepayAmount] = useState("");
+  const [repayLoading, setRepayLoading] = useState(false);
+
+  const loadRepayments = useCallback(async (cardList: Card[]) => {
+    if (!user) return;
+    const month = currentYearMonth();
+    const entries = await Promise.all(
+      cardList.map(async (c) => {
+        try {
+          const list = await apiFetchRepayments(user, c.id, month);
+          return [c.id, list] as [string, RepaymentRecord[]];
+        } catch {
+          return [c.id, []] as [string, RepaymentRecord[]];
+        }
+      })
+    );
+    setRepaymentMap(Object.fromEntries(entries));
+  }, [user]);
+
   useEffect(() => {
     setSettings(loadSettings());
     if (user) {
       apiFetchCards(user)
-        .then((docs) => setCards(docs as Card[]))
+        .then((docs) => {
+          const loaded = docs as Card[];
+          setCards(loaded);
+          return loadRepayments(loaded);
+        })
         .catch((e) => console.error("[settings] loadCards failed:", e));
     }
-  }, [user]);
+  }, [user, loadRepayments]);
 
   const set = <K extends keyof UserSettings>(k: K, v: UserSettings[K]) =>
     setSettings((prev) => ({ ...prev, [k]: v }));
@@ -172,6 +217,29 @@ export default function SettingsPage() {
     }
   };
 
+  // 回復モーダル処理
+  const openRecoverModal = (card: Card) => {
+    setRecoverModal({ cardId: card.id, cardName: card.name });
+    setRepayAmount("");
+  };
+  const closeRecoverModal = () => { setRecoverModal(null); setRepayAmount(""); };
+
+  const handleRepay = async (amount: number) => {
+    if (!user || !recoverModal || amount <= 0) return;
+    setRepayLoading(true);
+    try {
+      await apiPostRepayment(user, recoverModal.cardId, amount);
+      const month = currentYearMonth();
+      const updated = await apiFetchRepayments(user, recoverModal.cardId, month);
+      setRepaymentMap((prev) => ({ ...prev, [recoverModal.cardId]: updated }));
+      closeRecoverModal();
+    } catch (e) {
+      console.error("[repay]", e);
+    } finally {
+      setRepayLoading(false);
+    }
+  };
+
   // インライン入力スタイル共通
   const inputStyle: React.CSSProperties = { fontSize: 13 };
   const colorInputStyle: React.CSSProperties = {
@@ -182,6 +250,46 @@ export default function SettingsPage() {
     padding: "8px 14px", borderRadius: 8, border: "1px solid #e2e8f0",
     background: "white", color: "#64748b", fontSize: 13,
     cursor: "pointer", fontFamily: "inherit",
+  };
+
+  // 体力パネルレンダラー
+  const renderHealthPanel = (card: Card) => {
+    const limit = card.limit ?? 0;
+    if (!limit) return null;
+    const repayments = repaymentMap[card.id] ?? [];
+    const totalRepaid = repayments.reduce((s, r) => s + r.amount, 0);
+    const purchases = 0; // purchasesは未実装のため0
+    const usedAmount = Math.max(0, purchases - totalRepaid);
+    const remaining = limit - usedAmount;
+    const usageRate = purchases / limit * 100;
+    const barColor = usageRate >= 95 ? "#dc2626" : usageRate >= 80 ? "#f97316" : "#16a34a";
+    const textColor = usageRate >= 95 ? "#dc2626" : usageRate >= 80 ? "#f97316" : "#16a34a";
+    return (
+      <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed #e2e8f0" }}>
+        {/* プログレスバー */}
+        <div style={{ height: 8, borderRadius: 4, background: "#e2e8f0", overflow: "hidden", marginBottom: 6 }}>
+          <div style={{
+            height: "100%", width: `${Math.min(usageRate, 100)}%`,
+            background: barColor, borderRadius: 4, transition: "width 0.4s",
+          }} />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 11, color: textColor, fontWeight: 700 }}>
+            残枠 {remaining.toLocaleString()}円 / {limit.toLocaleString()}円
+          </span>
+          <button
+            onClick={() => openRecoverModal(card)}
+            style={{
+              padding: "3px 10px", borderRadius: 6, border: "1px solid #7c3aed",
+              background: "#f5f3ff", color: "#7c3aed", fontSize: 11,
+              cursor: "pointer", fontFamily: "inherit", fontWeight: 700,
+            }}
+          >
+            💊 回復する
+          </button>
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -462,44 +570,46 @@ export default function SettingsPage() {
                   </div>
                 ) : (
                   <div style={{
-                    display: "flex", alignItems: "center", gap: 12,
                     padding: "12px 14px", borderRadius: 10,
                     border: "1px solid #e2e8f0", background: "#fafafa",
                   }}>
-                    <div style={{ width: 6, height: 44, borderRadius: 3, background: card.color, flexShrink: 0 }} />
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#1e293b" }}>{card.name}</div>
-                      <div style={{ display: "flex", gap: 14, marginTop: 3 }}>
-                        <span style={{ fontSize: 11, color: "#64748b" }}>
-                          限度額: <strong style={{ color: "#374151" }}>¥{card.limit.toLocaleString()}</strong>
-                        </span>
-                        <span style={{ fontSize: 11, color: "#64748b" }}>
-                          還元率: <strong style={{ color: "#059669" }}>{card.pointRate}%</strong>
-                        </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div style={{ width: 6, height: 44, borderRadius: 3, background: card.color, flexShrink: 0 }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "#1e293b" }}>{card.name}</div>
+                        <div style={{ display: "flex", gap: 14, marginTop: 3 }}>
+                          <span style={{ fontSize: 11, color: "#64748b" }}>
+                            限度額: <strong style={{ color: "#374151" }}>¥{card.limit.toLocaleString()}</strong>
+                          </span>
+                          <span style={{ fontSize: 11, color: "#64748b" }}>
+                            還元率: <strong style={{ color: "#059669" }}>{card.pointRate}%</strong>
+                          </span>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                        <button
+                          onClick={() => handleStartEdit(card)}
+                          style={{
+                            padding: "5px 12px", borderRadius: 7, border: "1px solid #e2e8f0",
+                            background: "white", color: "#374151", fontSize: 12,
+                            cursor: "pointer", fontFamily: "inherit",
+                          }}
+                        >
+                          編集
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCard(card.id)}
+                          style={{
+                            padding: "5px 12px", borderRadius: 7, border: "1px solid #fca5a5",
+                            background: "#fff5f5", color: "#dc2626", fontSize: 12,
+                            cursor: "pointer", fontFamily: "inherit",
+                          }}
+                        >
+                          削除
+                        </button>
                       </div>
                     </div>
-                    <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                      <button
-                        onClick={() => handleStartEdit(card)}
-                        style={{
-                          padding: "5px 12px", borderRadius: 7, border: "1px solid #e2e8f0",
-                          background: "white", color: "#374151", fontSize: 12,
-                          cursor: "pointer", fontFamily: "inherit",
-                        }}
-                      >
-                        編集
-                      </button>
-                      <button
-                        onClick={() => handleDeleteCard(card.id)}
-                        style={{
-                          padding: "5px 12px", borderRadius: 7, border: "1px solid #fca5a5",
-                          background: "#fff5f5", color: "#dc2626", fontSize: 12,
-                          cursor: "pointer", fontFamily: "inherit",
-                        }}
-                      >
-                        削除
-                      </button>
-                    </div>
+                    {renderHealthPanel(card)}
                   </div>
                 )}
               </div>
@@ -507,6 +617,78 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+
+      {/* 回復モーダル */}
+      {recoverModal && (() => {
+        const card = cards.find((c) => c.id === recoverModal.cardId);
+        const repayments = repaymentMap[recoverModal.cardId] ?? [];
+        const totalRepaid = repayments.reduce((s, r) => s + r.amount, 0);
+        const purchases = 0;
+        const usedAmount = Math.max(0, purchases - totalRepaid);
+        return (
+          <div style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
+          }} onClick={closeRecoverModal}>
+            <div style={{
+              background: "white", borderRadius: 16, padding: 28, width: 340, maxWidth: "90vw",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ fontSize: 16, fontWeight: 900, color: "#7c3aed", marginBottom: 4 }}>💊 回復する</div>
+              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>{card?.name}</div>
+              <div style={{
+                padding: "10px 14px", borderRadius: 8, background: "#f5f3ff",
+                fontSize: 13, color: "#374151", marginBottom: 16,
+              }}>
+                現在の使用額: <strong style={{ color: "#7c3aed" }}>{usedAmount.toLocaleString()}円</strong>
+              </div>
+              <input
+                type="number"
+                placeholder="金額を入力（円）"
+                value={repayAmount}
+                onChange={(e) => setRepayAmount(e.target.value)}
+                style={{
+                  width: "100%", padding: "10px 12px", borderRadius: 8,
+                  border: "1px solid #c4b5fd", fontSize: 14, marginBottom: 12,
+                  outline: "none", fontFamily: "inherit", boxSizing: "border-box",
+                }}
+              />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  disabled={repayLoading || usedAmount <= 0}
+                  onClick={() => handleRepay(usedAmount)}
+                  style={{
+                    flex: 1, padding: "10px 0", borderRadius: 8,
+                    border: "2px solid #7c3aed", background: "#7c3aed",
+                    color: "white", fontWeight: 900, fontSize: 13,
+                    cursor: repayLoading || usedAmount <= 0 ? "not-allowed" : "pointer",
+                    fontFamily: "inherit", opacity: usedAmount <= 0 ? 0.5 : 1,
+                  }}
+                >✨ ベホマ</button>
+                <button
+                  disabled={repayLoading || !repayAmount || Number(repayAmount) <= 0}
+                  onClick={() => handleRepay(Number(repayAmount))}
+                  style={{
+                    flex: 1, padding: "10px 0", borderRadius: 8,
+                    border: "2px solid #16a34a", background: "#16a34a",
+                    color: "white", fontWeight: 700, fontSize: 13,
+                    cursor: repayLoading || !repayAmount ? "not-allowed" : "pointer",
+                    fontFamily: "inherit", opacity: !repayAmount || Number(repayAmount) <= 0 ? 0.5 : 1,
+                  }}
+                >💊 回復する</button>
+              </div>
+              <button
+                onClick={closeRecoverModal}
+                style={{
+                  marginTop: 10, width: "100%", padding: "8px 0", borderRadius: 8,
+                  border: "1px solid #e2e8f0", background: "white", color: "#64748b",
+                  fontSize: 13, cursor: "pointer", fontFamily: "inherit",
+                }}
+              >キャンセル</button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 保存ボタン */}
       {saved ? (
