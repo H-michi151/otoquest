@@ -1,11 +1,13 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { getIdToken } from "firebase/auth";
 import type { CardDoc } from "@/lib/firebase";
 
 // ===== APIヘルパー =====
-async function authHeader(user: NonNullable<ReturnType<typeof useAuth>["user"]>) {
+type AuthUser = NonNullable<ReturnType<typeof useAuth>["user"]>;
+
+async function authHeader(user: AuthUser) {
   const token = await getIdToken(user);
   return {
     "Authorization": `Bearer ${token}`,
@@ -13,7 +15,7 @@ async function authHeader(user: NonNullable<ReturnType<typeof useAuth>["user"]>)
   };
 }
 
-async function apiFetchCards(user: NonNullable<ReturnType<typeof useAuth>["user"]>): Promise<CardDoc[]> {
+async function apiFetchCards(user: AuthUser): Promise<CardDoc[]> {
   const headers = await authHeader(user);
   const res = await fetch("/api/cards", { headers });
   if (!res.ok) throw new Error(`GET /api/cards: ${res.status}`);
@@ -21,7 +23,7 @@ async function apiFetchCards(user: NonNullable<ReturnType<typeof useAuth>["user"
   return data.cards;
 }
 
-async function apiAddCard(user: NonNullable<ReturnType<typeof useAuth>["user"]>, card: CardDoc): Promise<void> {
+async function apiAddCard(user: AuthUser, card: CardDoc): Promise<void> {
   const headers = await authHeader(user);
   const res = await fetch("/api/cards", {
     method: "POST",
@@ -31,7 +33,7 @@ async function apiAddCard(user: NonNullable<ReturnType<typeof useAuth>["user"]>,
   if (!res.ok) throw new Error(`POST /api/cards: ${res.status}`);
 }
 
-async function apiUpdateCard(user: NonNullable<ReturnType<typeof useAuth>["user"]>, card: CardDoc): Promise<void> {
+async function apiUpdateCard(user: AuthUser, card: CardDoc): Promise<void> {
   const headers = await authHeader(user);
   const res = await fetch(`/api/cards/${card.id}`, {
     method: "PUT",
@@ -41,13 +43,34 @@ async function apiUpdateCard(user: NonNullable<ReturnType<typeof useAuth>["user"
   if (!res.ok) throw new Error(`PUT /api/cards/${card.id}: ${res.status}`);
 }
 
-async function apiDeleteCard(user: NonNullable<ReturnType<typeof useAuth>["user"]>, id: string): Promise<void> {
+async function apiDeleteCard(user: AuthUser, id: string): Promise<void> {
   const headers = await authHeader(user);
   const res = await fetch(`/api/cards/${id}`, {
     method: "DELETE",
     headers,
   });
   if (!res.ok) throw new Error(`DELETE /api/cards/${id}: ${res.status}`);
+}
+
+// ===== 返済API =====
+interface RepaymentRecord { id: string; amount: number; date: string; note: string | null; }
+
+async function apiFetchRepayments(user: AuthUser, cardId: string, month: string): Promise<RepaymentRecord[]> {
+  const headers = await authHeader(user);
+  const res = await fetch(`/api/repayments?cardId=${encodeURIComponent(cardId)}&month=${month}`, { headers });
+  if (!res.ok) throw new Error(`GET /api/repayments: ${res.status}`);
+  return ((await res.json()) as { repayments: RepaymentRecord[] }).repayments;
+}
+
+async function apiPostRepayment(user: AuthUser, cardId: string, amount: number): Promise<void> {
+  const headers = await authHeader(user);
+  const res = await fetch("/api/repayments", { method: "POST", headers, body: JSON.stringify({ cardId, amount }) });
+  if (!res.ok) throw new Error(`POST /api/repayments: ${res.status}`);
+}
+
+function currentYearMonth(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
 const COLORS = ["#cc0000", "#1a237e", "#1b5e20", "#4a148c", "#e65100", "#006064", "#37474f"];
@@ -78,27 +101,48 @@ export default function CardsPage() {
   const [form, setForm] = useState<Omit<CardDoc, "id">>(EMPTY_FORM);
   const [saveMsg, setSaveMsg] = useState("");
 
+  // 体力パネル state
+  const [repaymentMap, setRepaymentMap] = useState<Record<string, RepaymentRecord[]>>({});
+  const [recoverModal, setRecoverModal] = useState<{ cardId: string; cardName: string } | null>(null);
+  const [repayAmount, setRepayAmount] = useState("");
+  const [repayLoading, setRepayLoading] = useState(false);
+
+  // 返済データ取得
+  const loadRepayments = useCallback(async (cardList: CardDoc[]) => {
+    if (!user) return;
+    const month = currentYearMonth();
+    const entries = await Promise.all(
+      cardList.map(async (c) => {
+        try {
+          const list = await apiFetchRepayments(user, c.id, month);
+          return [c.id, list] as [string, RepaymentRecord[]];
+        } catch {
+          return [c.id, []] as [string, RepaymentRecord[]];
+        }
+      })
+    );
+    setRepaymentMap(Object.fromEntries(entries));
+  }, [user]);
+
   // API経由でカード再取得
-  const reloadCards = async () => {
+  const reloadCards = useCallback(async () => {
     if (!user) return;
     setLoading(true);
     try {
       const docs = await apiFetchCards(user);
       setCards(docs);
+      await loadRepayments(docs);
     } catch (e) {
       console.error("[cards] reloadCards failed:", e);
     } finally {
       setLoading(false);
     }
-  };
+  }, [user, loadRepayments]);
 
   useEffect(() => {
     if (!user) return;
     reloadCards();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user]);
-
-
+  }, [user, reloadCards]);
 
   const openAdd = () => {
     setEditingId(null);
@@ -119,26 +163,20 @@ export default function CardsPage() {
     try {
       if (editingId) {
         const updated: CardDoc = { id: editingId, ...form };
-        // ① 楽観的更新（即時UI反映）
         setCards((prev) => prev.map((c) => c.id === editingId ? updated : c));
-        // ② APIルート経由で更新
         await apiUpdateCard(user, updated);
       } else {
         const id = `card_${Date.now()}`;
         const newCard: CardDoc = { id, ...form };
-        // ① 楽観的更新（即時UI反映）
         setCards((prev) => [...prev, newCard]);
-        // ② APIルート経由で追加
         await apiAddCard(user, newCard);
       }
       setSaveMsg("✅ 保存しました");
       setTimeout(() => setSaveMsg(""), 2000);
-      // ③ 書き込み後にサーバーから再取得して同期
       setTimeout(() => reloadCards(), 800);
     } catch (e) {
       console.error("[cards] save failed:", e);
       setSaveMsg(`❌ 保存に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
-      // ロールバック
       reloadCards();
     } finally {
       setSaving(false);
@@ -149,18 +187,77 @@ export default function CardsPage() {
     if (!confirm("このカードを削除しますか？") || !user) return;
     setSaving(true);
     try {
-      // 楽観的更新
       setCards((prev) => prev.filter((c) => c.id !== id));
-      // APIルート経由で削除
       await apiDeleteCard(user, id);
     } catch (e) {
       console.error("[cards] delete failed:", e);
       setSaveMsg(`❌ 削除に失敗しました: ${e instanceof Error ? e.message : String(e)}`);
-      // ロールバック
       reloadCards();
     } finally {
       setSaving(false);
     }
+  };
+
+  // 回復モーダル処理
+  const openRecoverModal = (card: CardDoc) => {
+    setRecoverModal({ cardId: card.id, cardName: card.name });
+    setRepayAmount("");
+  };
+  const closeRecoverModal = () => { setRecoverModal(null); setRepayAmount(""); };
+
+  const handleRepay = async (amount: number) => {
+    if (!user || !recoverModal || amount <= 0) return;
+    setRepayLoading(true);
+    try {
+      await apiPostRepayment(user, recoverModal.cardId, amount);
+      const month = currentYearMonth();
+      const updated = await apiFetchRepayments(user, recoverModal.cardId, month);
+      setRepaymentMap((prev) => ({ ...prev, [recoverModal.cardId]: updated }));
+      closeRecoverModal();
+    } catch (e) {
+      console.error("[repay]", e);
+    } finally {
+      setRepayLoading(false);
+    }
+  };
+
+  // 体力パネルレンダラー
+  const renderHealthPanel = (card: CardDoc) => {
+    const limit = card.limit ?? 0;
+    if (!limit) return null;
+    const repayments = repaymentMap[card.id] ?? [];
+    const totalRepaid = repayments.reduce((s, r) => s + r.amount, 0);
+    const purchases = 0; // purchasesは未実装のため0
+    const usedAmount = Math.max(0, purchases - totalRepaid);
+    const remaining = limit - usedAmount;
+    const usageRate = purchases / limit * 100;
+    const barColor = usageRate >= 95 ? "#dc2626" : usageRate >= 80 ? "#f97316" : "#16a34a";
+    const textColor = usageRate >= 95 ? "#dc2626" : usageRate >= 80 ? "#f97316" : "#16a34a";
+    return (
+      <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px dashed #e2e8f0" }}>
+        <div style={{ height: 8, borderRadius: 4, background: "#e2e8f0", overflow: "hidden", marginBottom: 6 }}>
+          <div style={{
+            height: "100%", width: `${Math.min(usageRate, 100)}%`,
+            background: barColor, borderRadius: 4, transition: "width 0.4s",
+          }} />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span style={{ fontSize: 11, color: textColor, fontWeight: 700 }}>
+            残枠 {remaining.toLocaleString()}円 / {limit.toLocaleString()}円
+          </span>
+          <button
+            onClick={() => openRecoverModal(card)}
+            style={{
+              padding: "3px 10px", borderRadius: 6, border: "1px solid #7c3aed",
+              background: "#f5f3ff", color: "#7c3aed", fontSize: 11,
+              cursor: "pointer", fontFamily: "inherit", fontWeight: 700,
+            }}
+          >
+            💊 回復する
+          </button>
+        </div>
+      </div>
+    );
   };
 
   if (loading) {
@@ -247,8 +344,11 @@ export default function CardsPage() {
                 </div>
               </div>
 
+              {/* 体力パネル */}
+              {renderHealthPanel(card)}
+
               {/* 操作ボタン */}
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
                 <button
                   onClick={() => openEdit(card)}
                   style={{
@@ -276,6 +376,78 @@ export default function CardsPage() {
           ))}
         </div>
       )}
+
+      {/* 回復モーダル */}
+      {recoverModal && (() => {
+        const card = cards.find((c) => c.id === recoverModal.cardId);
+        const repayments = repaymentMap[recoverModal.cardId] ?? [];
+        const totalRepaid = repayments.reduce((s, r) => s + r.amount, 0);
+        const purchases = 0;
+        const usedAmount = Math.max(0, purchases - totalRepaid);
+        return (
+          <div style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)",
+            display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
+          }} onClick={closeRecoverModal}>
+            <div style={{
+              background: "white", borderRadius: 16, padding: 28, width: 340, maxWidth: "90vw",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+            }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ fontSize: 16, fontWeight: 900, color: "#7c3aed", marginBottom: 4 }}>💊 回復する</div>
+              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>{card?.name}</div>
+              <div style={{
+                padding: "10px 14px", borderRadius: 8, background: "#f5f3ff",
+                fontSize: 13, color: "#374151", marginBottom: 16,
+              }}>
+                現在の使用額: <strong style={{ color: "#7c3aed" }}>{usedAmount.toLocaleString()}円</strong>
+              </div>
+              <input
+                type="number"
+                placeholder="金額を入力（円）"
+                value={repayAmount}
+                onChange={(e) => setRepayAmount(e.target.value)}
+                style={{
+                  width: "100%", padding: "10px 12px", borderRadius: 8,
+                  border: "1px solid #c4b5fd", fontSize: 14, marginBottom: 12,
+                  outline: "none", fontFamily: "inherit", boxSizing: "border-box",
+                }}
+              />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  disabled={repayLoading || usedAmount <= 0}
+                  onClick={() => handleRepay(usedAmount)}
+                  style={{
+                    flex: 1, padding: "10px 0", borderRadius: 8,
+                    border: "2px solid #7c3aed", background: "#7c3aed",
+                    color: "white", fontWeight: 900, fontSize: 13,
+                    cursor: repayLoading || usedAmount <= 0 ? "not-allowed" : "pointer",
+                    fontFamily: "inherit", opacity: usedAmount <= 0 ? 0.5 : 1,
+                  }}
+                >✨ ベホマ</button>
+                <button
+                  disabled={repayLoading || !repayAmount || Number(repayAmount) <= 0}
+                  onClick={() => handleRepay(Number(repayAmount))}
+                  style={{
+                    flex: 1, padding: "10px 0", borderRadius: 8,
+                    border: "2px solid #16a34a", background: "#16a34a",
+                    color: "white", fontWeight: 700, fontSize: 13,
+                    cursor: repayLoading || !repayAmount ? "not-allowed" : "pointer",
+                    fontFamily: "inherit", opacity: !repayAmount || Number(repayAmount) <= 0 ? 0.5 : 1,
+                  }}
+                >💊 回復する</button>
+              </div>
+              <button
+                onClick={closeRecoverModal}
+                style={{
+                  marginTop: 10, width: "100%", padding: "8px 0", borderRadius: 8,
+                  border: "1px solid #e2e8f0", background: "white", color: "#64748b",
+                  fontSize: 13, cursor: "pointer", fontFamily: "inherit",
+                }}
+              >キャンセル</button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* 追加・編集フォーム（モーダル風） */}
       {showForm && (
