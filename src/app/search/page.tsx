@@ -966,7 +966,7 @@ export default function SearchPage() {
                                     {user && (
                                       <button
                                         onClick={() => {
-                                          const cardId = allUserCardObjects.find((c) => c.name === (item.cardName ?? ""))?.id ?? "";
+                                          const cardId = item.cardId ?? "";
                                           addUserPurchase(user.uid, {
                                             itemName: item.itemName,
                                             price: item.price,

@@ -35,6 +35,7 @@ export interface ApiItem {
 export interface EnrichedItem extends ApiItem {
   source: "楽天市場" | "Yahoo!ショッピング";
   couponDiscount: number;    // クーポン割引額（円）※現時点では0
+  cardId: string;            // 適用カードID（Firestore cardId）
   cardName: string;          // 適用カード名
   cardRate: number;          // カード追加還元率（%）
   totalRate: number;         // 合計還元率 = point_rate + cardRate
@@ -92,6 +93,7 @@ export function enrichItem(
     ...item,
     source,
     couponDiscount,
+    cardId: "",
     cardName: bestCard.name,
     cardRate: bestCard.rate,
     totalRate,
@@ -112,14 +114,14 @@ export function enrichItem(
 export function enrichItemWithLocalCards(
   item: ApiItem,
   source: "楽天市場" | "Yahoo!ショッピング",
-  userCardObjects: { name: string; pointRate: number }[],
+  userCardObjects: { id: string; name: string; pointRate: number }[],
   couponDiscount = 0
 ): EnrichedItem {
   // pointRate最大のカードを選択
-  let bestCard = { name: "（カードなし）", rate: 0 };
+  let bestCard = { id: "", name: "（カードなし）", rate: 0 };
   for (const card of userCardObjects) {
     if (card.pointRate > bestCard.rate) {
-      bestCard = { name: card.name, rate: card.pointRate };
+      bestCard = { id: card.id, name: card.name, rate: card.pointRate };
     }
   }
 
@@ -141,6 +143,7 @@ export function enrichItemWithLocalCards(
     ...item,
     source,
     couponDiscount,
+    cardId: bestCard.id,
     cardName: bestCard.name,
     cardRate: bestCard.rate,
     totalRate,
