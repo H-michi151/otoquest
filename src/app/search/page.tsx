@@ -110,7 +110,7 @@ export default function SearchPage() {
   // Firestoreからカード情報をロード
   const { user } = useAuth();
   const [userCardNamesFromStorage, setUserCardNamesFromStorage] = useState<string[]>(defaultUserCardNames);
-  const [allUserCardObjects, setAllUserCardObjects] = useState<{ name: string; pointRate: number }[]>([]);
+  const [allUserCardObjects, setAllUserCardObjects] = useState<{ id: string; name: string; pointRate: number }[]>([]);
   useEffect(() => {
     if (!user) return;
     getIdToken(user).then((token) =>
@@ -119,7 +119,7 @@ export default function SearchPage() {
         .then((data: { cards: { name: string; pointRate: number; id: string }[] }) => {
           if (data.cards && data.cards.length > 0) {
             setUserCardNamesFromStorage(data.cards.map((c) => c.name));
-            setAllUserCardObjects(data.cards.map((c) => ({ name: c.name, pointRate: c.pointRate })));
+            setAllUserCardObjects(data.cards.map((c) => ({ id: c.id, name: c.name, pointRate: c.pointRate })));
           }
         })
         .catch((e) => console.error("[search] loadCards failed:", e))
@@ -966,12 +966,14 @@ export default function SearchPage() {
                                     {user && (
                                       <button
                                         onClick={() => {
+                                          const cardId = allUserCardObjects.find((c) => c.name === (item.cardName ?? ""))?.id ?? "";
                                           addUserPurchase(user.uid, {
                                             itemName: item.itemName,
                                             price: item.price,
                                             realPrice: item.realPrice,
                                             savedAmount: item.price - item.realPrice,
                                             cardName: item.cardName ?? "—",
+                                            cardId,
                                             shop: item.source,
                                           }).then(() => alert(`📝 購入記録に追加しました\n${item.itemName}`));
                                         }}

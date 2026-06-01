@@ -605,6 +605,7 @@ export default function ComparePage() {
                       realPrice: popupPrice,
                       savedAmount: popup.price - popupPrice,
                       cardName,
+                      cardId: selectedCardId,
                       shop: popup.shop,
                     });
                   }

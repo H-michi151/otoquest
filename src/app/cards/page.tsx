@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { getIdToken } from "firebase/auth";
 import type { CardDoc } from "@/lib/firebase";
+import { loadMonthlyPurchasesByCard } from "@/lib/firebase";
 
 // ===== APIヘルパー =====
 type AuthUser = NonNullable<ReturnType<typeof useAuth>["user"]>;
@@ -103,25 +104,39 @@ export default function CardsPage() {
 
   // 体力パネル state
   const [repaymentMap, setRepaymentMap] = useState<Record<string, RepaymentRecord[]>>({});
+  const [purchasesMap, setPurchasesMap] = useState<Record<string, number>>({});
   const [recoverModal, setRecoverModal] = useState<{ cardId: string; cardName: string } | null>(null);
   const [repayAmount, setRepayAmount] = useState("");
   const [repayLoading, setRepayLoading] = useState(false);
 
-  // 返済データ取得
+  // 返済・購入データ取得
   const loadRepayments = useCallback(async (cardList: CardDoc[]) => {
     if (!user) return;
     const month = currentYearMonth();
-    const entries = await Promise.all(
-      cardList.map(async (c) => {
-        try {
-          const list = await apiFetchRepayments(user, c.id, month);
-          return [c.id, list] as [string, RepaymentRecord[]];
-        } catch {
-          return [c.id, []] as [string, RepaymentRecord[]];
-        }
-      })
-    );
-    setRepaymentMap(Object.fromEntries(entries));
+    const [repEntries, purEntries] = await Promise.all([
+      Promise.all(
+        cardList.map(async (c) => {
+          try {
+            const list = await apiFetchRepayments(user, c.id, month);
+            return [c.id, list] as [string, RepaymentRecord[]];
+          } catch {
+            return [c.id, []] as [string, RepaymentRecord[]];
+          }
+        })
+      ),
+      Promise.all(
+        cardList.map(async (c) => {
+          try {
+            const total = await loadMonthlyPurchasesByCard(user.uid, c.id, month);
+            return [c.id, total] as [string, number];
+          } catch {
+            return [c.id, 0] as [string, number];
+          }
+        })
+      ),
+    ]);
+    setRepaymentMap(Object.fromEntries(repEntries));
+    setPurchasesMap(Object.fromEntries(purEntries));
   }, [user]);
 
   // API経由でカード再取得
@@ -227,7 +242,7 @@ export default function CardsPage() {
     if (!limit) return null;
     const repayments = repaymentMap[card.id] ?? [];
     const totalRepaid = repayments.reduce((s, r) => s + r.amount, 0);
-    const purchases = 0; // purchasesは未実装のため0
+    const purchases = purchasesMap[card.id] ?? 0;
     const usedAmount = Math.max(0, purchases - totalRepaid);
     const remaining = limit - usedAmount;
     const usageRate = purchases / limit * 100;
@@ -382,7 +397,7 @@ export default function CardsPage() {
         const card = cards.find((c) => c.id === recoverModal.cardId);
         const repayments = repaymentMap[recoverModal.cardId] ?? [];
         const totalRepaid = repayments.reduce((s, r) => s + r.amount, 0);
-        const purchases = 0;
+        const purchases = purchasesMap[recoverModal.cardId] ?? 0;
         const usedAmount = Math.max(0, purchases - totalRepaid);
         return (
           <div style={{

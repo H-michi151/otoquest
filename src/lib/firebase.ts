@@ -104,7 +104,7 @@ export type CardDoc = {
 // ===== 購入履歴（Firestore）=====
 export type PurchaseDoc = {
   id: string; itemName: string; price: number; realPrice: number;
-  savedAmount: number; cardName: string; shop: string; purchasedAt: string;
+  savedAmount: number; cardName: string; cardId: string; shop: string; purchasedAt: string;
 };
 
 export async function loadUserPurchases(uid: string): Promise<PurchaseDoc[]> {
@@ -135,6 +135,29 @@ export async function addUserPurchase(
       ...purchase, id, purchasedAt: Timestamp.now(),
     });
   } catch (e) { console.warn("[purchases] write error:", e); }
+}
+
+/** 当月（YYYY-MM）のpurchasesをcardId単位で合計して返す */
+export async function loadMonthlyPurchasesByCard(
+  uid: string,
+  cardId: string,
+  month: string // YYYY-MM
+): Promise<number> {
+  if (!db) return 0;
+  try {
+    const { collection, getDocs, orderBy, query } = await import("firebase/firestore");
+    const q = query(collection(db, `users/${uid}/purchases`), orderBy("purchasedAt", "desc"));
+    const snap = await getDocs(q);
+    return snap.docs
+      .map((d) => d.data())
+      .filter((d) => {
+        const at = typeof d.purchasedAt?.toDate === "function"
+          ? d.purchasedAt.toDate().toISOString()
+          : String(d.purchasedAt ?? "");
+        return d.cardId === cardId && at.startsWith(month);
+      })
+      .reduce((sum, d) => sum + (d.price as number ?? 0), 0);
+  } catch (e) { console.warn("[purchases] monthlyByCard error:", e); return 0; }
 }
 
 // ===== ウォッチリスト（Firestore: users/{uid}/watchlist/{id}）=====
