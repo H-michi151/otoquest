@@ -965,17 +965,27 @@ export default function SearchPage() {
                                     {/* 購入記録ボタン */}
                                     {user && (
                                       <button
-                                        onClick={() => {
+                                        onClick={async () => {
+                                          console.log("[購入記録] ボタンが押されました");
                                           const cardId = item.cardId ?? "";
-                                          addUserPurchase(user.uid, {
-                                            itemName: item.itemName,
-                                            price: item.price,
-                                            realPrice: item.realPrice,
-                                            savedAmount: item.price - item.realPrice,
-                                            cardName: item.cardName ?? "—",
-                                            cardId,
-                                            shop: item.source,
-                                          }).then(() => alert(`📝 購入記録に追加しました\n${item.itemName}`));
+                                          console.log("[購入記録] item.cardId =", item.cardId, "→ cardId =", cardId);
+                                          console.log("[購入記録] user.uid =", user.uid);
+                                          try {
+                                            console.log("[購入記録] addUserPurchase 呼び出し直前", { uid: user.uid, itemName: item.itemName, price: item.price, cardId });
+                                            await addUserPurchase(user.uid, {
+                                              itemName: item.itemName,
+                                              price: item.price,
+                                              realPrice: item.realPrice,
+                                              savedAmount: item.price - item.realPrice,
+                                              cardName: item.cardName ?? "—",
+                                              cardId,
+                                              shop: item.source,
+                                            });
+                                            alert(`📝 購入記録に追加しました\n${item.itemName}`);
+                                          } catch (err) {
+                                            console.error("[購入記録] エラー発生:", err);
+                                            alert("❌ 購入記録の保存に失敗しました。コンソールを確認してください。");
+                                          }
                                         }}
                                         style={{
                                           display: "block", marginTop: 4,
