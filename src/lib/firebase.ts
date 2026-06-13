@@ -127,14 +127,26 @@ export async function addUserPurchase(
   uid: string,
   purchase: Omit<PurchaseDoc, "id" | "purchasedAt">
 ): Promise<void> {
-  if (!db) return;
-  try {
-    const { collection, doc, setDoc, Timestamp } = await import("firebase/firestore");
-    const id = `purchase_${Date.now()}`;
-    await setDoc(doc(collection(db, `users/${uid}/purchases`), id), {
-      ...purchase, id, purchasedAt: Timestamp.now(),
-    });
-  } catch (e) { console.warn("[purchases] write error:", e); }
+  // クライアントSDK直接書き込みはVercelでハングするため /api/purchases 経由で Admin SDK を使用
+  if (!auth) throw new Error("[purchases] auth未初期化");
+  const { getIdToken } = await import("firebase/auth");
+  const currentUser = auth.currentUser;
+  if (!currentUser) throw new Error("[purchases] 未ログイン");
+  const idToken = await getIdToken(currentUser);
+
+  const res = await fetch("/api/purchases", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${idToken}`,
+    },
+    body: JSON.stringify(purchase),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(`[purchases] API error ${res.status}: ${err.error ?? res.statusText}`);
+  }
 }
 
 /** 当月（YYYY-MM）のpurchasesをcardId単位で合計して返す */
