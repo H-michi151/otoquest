@@ -85,6 +85,15 @@ export default function SearchPage() {
   const [priceMax, setPriceMax] = useState<string>("");
 
   // ========================================
+  // 購入記録モーダル
+  // ========================================
+  const [purchasePopup, setPurchasePopup] = useState<{
+    item: EnrichedItem;
+  } | null>(null);
+  const [purchasePopupPrice, setPurchasePopupPrice] = useState<number>(0);
+  const [purchasePopupCardId, setPurchasePopupCardId] = useState<string>("");
+
+  // ========================================
   // 価格.com参考価格（Firestore kakaku_prices）
   // ========================================
   const [kakakuPriceMap, setKakakuPriceMap] = useState<Record<string, KakakuPrice | null>>({});
@@ -965,27 +974,11 @@ export default function SearchPage() {
                                     {/* 購入記録ボタン */}
                                     {user && (
                                       <button
-                                        onClick={async () => {
-                                          console.log("[購入記録] ボタンが押されました");
-                                          const cardId = item.cardId ?? "";
-                                          console.log("[購入記録] item.cardId =", item.cardId, "→ cardId =", cardId);
-                                          console.log("[購入記録] user.uid =", user.uid);
-                                          try {
-                                            console.log("[購入記録] addUserPurchase 呼び出し直前", { uid: user.uid, itemName: item.itemName, price: item.price, cardId });
-                                            await addUserPurchase(user.uid, {
-                                              itemName: item.itemName,
-                                              price: item.price,
-                                              realPrice: item.realPrice,
-                                              savedAmount: item.price - item.realPrice,
-                                              cardName: item.cardName ?? "—",
-                                              cardId,
-                                              shop: item.source,
-                                            });
-                                            alert(`📝 購入記録に追加しました\n${item.itemName}`);
-                                          } catch (err) {
-                                            console.error("[購入記録] エラー発生:", err);
-                                            alert("❌ 購入記録の保存に失敗しました。コンソールを確認してください。");
-                                          }
+                                        onClick={() => {
+                                          const initCardId = allUserCardObjects[0]?.id ?? item.cardId ?? "";
+                                          setPurchasePopup({ item });
+                                          setPurchasePopupPrice(item.price);
+                                          setPurchasePopupCardId(initCardId);
                                         }}
                                         style={{
                                           display: "block", marginTop: 4,
@@ -1267,6 +1260,150 @@ export default function SearchPage() {
 
         </div>
       </div>
+
+      {/* ===== 購入記録モーダル ===== */}
+      {purchasePopup && (
+        <div
+          style={{
+            position: "fixed", inset: 0, zIndex: 1000,
+            background: "rgba(0,0,0,0.45)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setPurchasePopup(null); }}
+        >
+          <div
+            style={{
+              background: "white", borderRadius: 16, padding: 28,
+              width: 420, maxWidth: "90vw",
+              boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
+            }}
+          >
+            <div style={{ fontSize: 17, fontWeight: 900, color: "#1e293b", marginBottom: 20 }}>
+              🗒️ 購入を記録しますか？
+            </div>
+
+            {/* 商品名 */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>商品名</label>
+              <div style={{
+                padding: "9px 12px", borderRadius: 8,
+                background: "#f8fafc", border: "1px solid #e2e8f0",
+                fontSize: 13, color: "#374151",
+                maxHeight: 60, overflow: "hidden",
+              }}>
+                {purchasePopup.item.itemName}
+              </div>
+            </div>
+
+            {/* 購入価格 */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>購入価格（円）</label>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ color: "#64748b" }}>¥</span>
+                <input
+                  type="number"
+                  className="dq-input"
+                  value={purchasePopupPrice}
+                  min={0}
+                  onChange={(e) => setPurchasePopupPrice(Number(e.target.value))}
+                  style={{ flex: 1 }}
+                />
+              </div>
+            </div>
+
+            {/* ショップ */}
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>ショップ</label>
+              <div style={{
+                padding: "9px 12px", borderRadius: 8,
+                background: "#f8fafc", border: "1px solid #e2e8f0",
+                fontSize: 14, color: "#374151",
+              }}>{purchasePopup.item.source}</div>
+            </div>
+
+            {/* カード選択 */}
+            <div style={{ marginBottom: 24 }}>
+              <label style={{ fontSize: 12, color: "#64748b", display: "block", marginBottom: 4 }}>使用カード</label>
+              {allUserCardObjects.length === 0 ? (
+                <div style={{ fontSize: 12, color: "#94a3b8" }}>カードが登録されていません（カード管理ページで追加できます）</div>
+              ) : (
+                <select
+                  value={purchasePopupCardId}
+                  onChange={(e) => setPurchasePopupCardId(e.target.value)}
+                  style={{
+                    width: "100%", padding: "9px 12px", borderRadius: 8,
+                    border: "1px solid #e2e8f0", fontSize: 14,
+                    fontFamily: "inherit", background: "white", cursor: "pointer",
+                  }}
+                >
+                  {allUserCardObjects.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            {/* ボタン群 */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              <button
+                className="btn-primary"
+                style={{ fontSize: 14 }}
+                onClick={async () => {
+                  const selCard = allUserCardObjects.find((c) => c.id === purchasePopupCardId);
+                  const cardName = selCard?.name ?? purchasePopup.item.cardName ?? "—";
+                  const cardId   = selCard?.id   ?? purchasePopupCardId;
+                  console.log("[購入記録] モーダルから記録:", { uid: user?.uid, cardId, cardName, price: purchasePopupPrice });
+                  try {
+                    if (user) {
+                      await addUserPurchase(user.uid, {
+                        itemName:    purchasePopup.item.itemName,
+                        price:       purchasePopup.item.price,
+                        realPrice:   purchasePopupPrice,
+                        savedAmount: purchasePopup.item.price - purchasePopupPrice,
+                        cardName,
+                        cardId,
+                        shop: purchasePopup.item.source,
+                      });
+                    }
+                    setPurchasePopup(null);
+                    window.open(purchasePopup.item.url, "_blank");
+                  } catch (err) {
+                    console.error("[購入記録] エラー:", err);
+                    alert("❌ 購入記録の保存に失敗しました。コンソールを確認してください。");
+                  }
+                }}
+              >
+                🗒️ 記録して購入ページへ
+              </button>
+              <button
+                onClick={() => {
+                  setPurchasePopup(null);
+                  window.open(purchasePopup.item.url, "_blank");
+                }}
+                style={{
+                  padding: "11px 0", borderRadius: 10,
+                  border: "1px solid #e2e8f0", background: "white",
+                  color: "#64748b", fontSize: 14, cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                記録せずに購入ページへ
+              </button>
+              <button
+                onClick={() => setPurchasePopup(null)}
+                style={{
+                  padding: "8px 0", borderRadius: 10,
+                  border: "none", background: "transparent",
+                  color: "#94a3b8", fontSize: 13, cursor: "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
