@@ -155,21 +155,28 @@ export async function loadMonthlyPurchasesByCard(
   cardId: string,
   month: string // YYYY-MM
 ): Promise<number> {
-  if (!db) return 0;
+  // クライアントSDK読み取りはVercelでハングするため /api/purchases 経由で Admin SDK を使用
+  if (!auth) return 0;
   try {
-    const { collection, getDocs, orderBy, query } = await import("firebase/firestore");
-    const q = query(collection(db, `users/${uid}/purchases`), orderBy("purchasedAt", "desc"));
-    const snap = await getDocs(q);
-    return snap.docs
-      .map((d) => d.data())
-      .filter((d) => {
-        const at = typeof d.purchasedAt?.toDate === "function"
-          ? d.purchasedAt.toDate().toISOString()
-          : String(d.purchasedAt ?? "");
-        return d.cardId === cardId && at.startsWith(month);
-      })
-      .reduce((sum, d) => sum + (d.price as number ?? 0), 0);
-  } catch (e) { console.warn("[purchases] monthlyByCard error:", e); return 0; }
+    const { getIdToken } = await import("firebase/auth");
+    const currentUser = auth.currentUser;
+    if (!currentUser) return 0;
+    const idToken = await getIdToken(currentUser);
+
+    const params = new URLSearchParams({ cardId, month });
+    const res = await fetch(`/api/purchases?${params}`, {
+      headers: { "Authorization": `Bearer ${idToken}` },
+    });
+    if (!res.ok) {
+      console.warn("[purchases] GET API error:", res.status, await res.text().catch(() => ""));
+      return 0;
+    }
+    const data = await res.json() as { total: number };
+    return data.total ?? 0;
+  } catch (e) {
+    console.warn("[purchases] monthlyByCard error:", e);
+    return 0;
+  }
 }
 
 // ===== ウォッチリスト（Firestore: users/{uid}/watchlist/{id}）=====
