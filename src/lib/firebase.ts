@@ -103,8 +103,28 @@ export type CardDoc = {
 
 // ===== 購入履歴（Firestore）=====
 export type PurchaseDoc = {
-  id: string; itemName: string; price: number; realPrice: number;
-  savedAmount: number; cardName: string; cardId: string; shop: string; purchasedAt: string;
+  id: string;
+  itemName: string;
+  /** 実支払い合計（= unitPrice × quantity - couponDiscount - pointsUsed） */
+  price: number;
+  realPrice: number;
+  savedAmount: number;
+  cardName: string;
+  cardId: string;
+  shop: string;
+  purchasedAt: string;
+  // ----- 拡張フィールド（Step1追加） -----
+  category: string;        // 品目（GPU/CPU/MB等）
+  quantity: number;        // 個数
+  unitPrice: number;       // 単価（クーポン・ポイント控除前）
+  couponDiscount: number;  // クーポン値引き額（円）
+  pointsUsed: number;      // ポイント使用数
+  billingMonth: string;    // 請求月（YYYY-MM、purchasedAtをJST変換して自動生成）
+  memo: string;            // フリー入力メモ
+  hasReceipt: boolean;     // 領収証あり
+  printed: boolean;        // 印刷済み
+  arrived: boolean;        // 届き済み
+  expenseEntered: boolean; // 経費クラウドサービス入力済み
 };
 
 export async function loadUserPurchases(uid: string): Promise<PurchaseDoc[]> {
@@ -123,9 +143,14 @@ export async function loadUserPurchases(uid: string): Promise<PurchaseDoc[]> {
   } catch (e) { console.warn("[purchases] read error:", e); return []; }
 }
 
+/** addUserPurchase に渡す購入データ型（拡張フィールドは任意） */
+export type PurchaseInput =
+  Omit<PurchaseDoc, "id" | "purchasedAt" | "category" | "quantity" | "unitPrice" | "couponDiscount" | "pointsUsed" | "billingMonth" | "memo" | "hasReceipt" | "printed" | "arrived" | "expenseEntered">
+  & Partial<Pick<PurchaseDoc, "category" | "quantity" | "unitPrice" | "couponDiscount" | "pointsUsed" | "billingMonth" | "memo" | "hasReceipt" | "printed" | "arrived" | "expenseEntered">>;
+
 export async function addUserPurchase(
   uid: string,
-  purchase: Omit<PurchaseDoc, "id" | "purchasedAt">
+  purchase: PurchaseInput
 ): Promise<void> {
   // クライアントSDK直接書き込みはVercelでハングするため /api/purchases 経由で Admin SDK を使用
   if (!auth) throw new Error("[purchases] auth未初期化");

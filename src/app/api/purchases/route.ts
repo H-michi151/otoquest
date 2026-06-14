@@ -101,6 +101,17 @@ export async function POST(req: NextRequest) {
       cardName: string;
       cardId: string;
       shop: string;
+      // 拡張フィールド（任意）
+      category?: string;
+      quantity?: number;
+      unitPrice?: number;
+      couponDiscount?: number;
+      pointsUsed?: number;
+      memo?: string;
+      hasReceipt?: boolean;
+      printed?: boolean;
+      arrived?: boolean;
+      expenseEntered?: boolean;
     };
 
     if (!body.itemName || body.price == null) {
@@ -109,6 +120,11 @@ export async function POST(req: NextRequest) {
 
     const id = `purchase_${Date.now()}`;
 
+    // billingMonth: リクエスト時刻をJST変換して生成
+    const now = new Date();
+    const jstNow = new Date(now.getTime() + JST_OFFSET_MS);
+    const billingMonth = `${jstNow.getUTCFullYear()}-${String(jstNow.getUTCMonth() + 1).padStart(2, "0")}`;
+
     await adminDb
       .collection("users")
       .doc(uid)
@@ -116,17 +132,29 @@ export async function POST(req: NextRequest) {
       .doc(id)
       .set({
         id,
-        itemName:    body.itemName,
-        price:       body.price,
-        realPrice:   body.realPrice   ?? body.price,
-        savedAmount: body.savedAmount ?? 0,
-        cardName:    body.cardName    ?? "—",
-        cardId:      body.cardId      ?? "",
-        shop:        body.shop        ?? "",
-        purchasedAt: FieldValue.serverTimestamp(),
+        itemName:       body.itemName,
+        price:          body.price,
+        realPrice:      body.realPrice      ?? body.price,
+        savedAmount:    body.savedAmount    ?? 0,
+        cardName:       body.cardName       ?? "—",
+        cardId:         body.cardId         ?? "",
+        shop:           body.shop           ?? "",
+        purchasedAt:    FieldValue.serverTimestamp(),
+        // 拡張フィールド
+        category:       body.category       ?? "",
+        quantity:       body.quantity       ?? 1,
+        unitPrice:      body.unitPrice      ?? body.price,
+        couponDiscount: body.couponDiscount ?? 0,
+        pointsUsed:     body.pointsUsed     ?? 0,
+        billingMonth,
+        memo:           body.memo           ?? "",
+        hasReceipt:     body.hasReceipt     ?? false,
+        printed:        body.printed        ?? false,
+        arrived:        body.arrived        ?? false,
+        expenseEntered: body.expenseEntered ?? false,
       });
 
-    console.log("[POST /api/purchases] 書き込み成功:", { uid, id, itemName: body.itemName });
+    console.log("[POST /api/purchases] 書き込み成功:", { uid, id, itemName: body.itemName, billingMonth });
     return NextResponse.json({ success: true, id });
   } catch (e) {
     console.error("[POST /api/purchases]", e);
