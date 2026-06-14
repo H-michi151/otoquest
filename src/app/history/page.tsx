@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { getIdToken } from "firebase/auth";
-import type { PurchaseDoc } from "@/lib/firebase";
+import type { PurchaseDoc, CardDoc } from "@/lib/firebase";
 
 // ===== ユーティリティ =====
 type AuthUser = NonNullable<ReturnType<typeof useAuth>["user"]>;
@@ -61,6 +61,32 @@ export default function HistoryPage() {
   // 請求書モーダル
   const [showInvoice, setShowInvoice] = useState(false);
 
+  // 編集モーダル
+  const [editTarget, setEditTarget] = useState<PurchaseDoc | null>(null); // null=新規
+  const [showEdit, setShowEdit] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [userCards, setUserCards] = useState<CardDoc[]>([]);
+
+  // フォーム状態
+  const [fDate, setFDate]             = useState("");
+  const [fCategory, setFCategory]     = useState("");
+  const [fItemName, setFItemName]     = useState("");
+  const [fQuantity, setFQuantity]     = useState(1);
+  const [fUnitPrice, setFUnitPrice]   = useState(0);
+  const [fCoupon, setFCoupon]         = useState(0);
+  const [fPoints, setFPoints]         = useState(0);
+  const [fShop, setFShop]             = useState("");
+  const [fCardId, setFCardId]         = useState("");
+  const [fMemo, setFMemo]             = useState("");
+  const [fArrived, setFArrived]       = useState(false);
+  const [fReceipt, setFReceipt]       = useState(false);
+  const [fPrinted, setFPrinted]       = useState(false);
+  const [fBilled, setFBilled]         = useState(false);
+  const [fExpense, setFExpense]       = useState(false);
+  // 新品目追加
+  const [addingCat, setAddingCat]     = useState(false);
+  const [newCatName, setNewCatName]   = useState("");
+
   // ===== データ取得 =====
   const loadPurchases = useCallback(async (month: string) => {
     if (!user) return;
@@ -91,15 +117,108 @@ export default function HistoryPage() {
     }
   }, [user]);
 
-  useEffect(() => {
+  const loadCards = useCallback(async () => {
     if (!user) return;
-    loadCategories();
-  }, [user, loadCategories]);
+    try {
+      const headers = await authHeader(user);
+      const res = await fetch("/api/cards", { headers });
+      if (!res.ok) return;
+      const data = await res.json() as { cards: CardDoc[] };
+      setUserCards(data.cards ?? []);
+    } catch (e) {
+      console.error("[history] loadCards failed:", e);
+    }
+  }, [user]);
 
-  useEffect(() => {
+  useEffect(() => { if (!user) return; loadCategories(); }, [user, loadCategories]);
+  useEffect(() => { if (!user) return; loadCards(); }, [user, loadCards]);
+  useEffect(() => { if (!user) return; loadPurchases(selectedMonth); }, [user, selectedMonth, loadPurchases]);
+
+  // ===== モーダル開閉 =====
+  const openModal = (p: PurchaseDoc | null) => {
+    setEditTarget(p);
+    if (p) {
+      const d = p.purchasedAt ? new Date(p.purchasedAt).toISOString().slice(0,10) : "";
+      setFDate(d); setFCategory(p.category ?? ""); setFItemName(p.itemName ?? "");
+      setFQuantity(p.quantity ?? 1); setFUnitPrice(p.unitPrice ?? p.price ?? 0);
+      setFCoupon(p.couponDiscount ?? 0); setFPoints(p.pointsUsed ?? 0);
+      setFShop(p.shop ?? ""); setFCardId(p.cardId ?? ""); setFMemo(p.memo ?? "");
+      setFArrived(p.arrived ?? false); setFReceipt(p.hasReceipt ?? false);
+      setFPrinted(p.printed ?? false); setFBilled(false); setFExpense(p.expenseEntered ?? false);
+    } else {
+      const today = new Date().toISOString().slice(0,10);
+      setFDate(today); setFCategory(""); setFItemName(""); setFQuantity(1); setFUnitPrice(0);
+      setFCoupon(0); setFPoints(0); setFShop(""); setFCardId(userCards[0]?.id ?? "");
+      setFMemo(""); setFArrived(false); setFReceipt(false); setFPrinted(false);
+      setFBilled(false); setFExpense(false);
+    }
+    setAddingCat(false); setNewCatName("");
+    setShowEdit(true);
+  };
+
+  // ===== 保存 =====
+  const handleSave = async () => {
+    if (!user || !fItemName.trim()) return;
+    setSaving(true);
+    try {
+      const headers = await authHeader(user);
+      const subtotal = fQuantity * fUnitPrice;
+      const price = Math.max(0, subtotal - fCoupon - fPoints);
+      const selCard = fCardId === "__points__"
+        ? { id: "", name: "ポイント利用" }
+        : userCards.find((c) => c.id === fCardId) ?? { id: fCardId, name: "" };
+      const body = {
+        itemName: fItemName.trim(), price, realPrice: price,
+        savedAmount: fCoupon + fPoints, cardId: selCard.id, cardName: selCard.name,
+        shop: fShop.trim(), category: fCategory, quantity: fQuantity,
+        unitPrice: fUnitPrice, couponDiscount: fCoupon, pointsUsed: fPoints,
+        memo: fMemo.trim(), hasReceipt: fReceipt, printed: fPrinted,
+        arrived: fArrived, expenseEntered: fExpense,
+      };
+      if (editTarget) {
+        const res = await fetch(`/api/purchases/${editTarget.id}`, { method: "PUT", headers, body: JSON.stringify(body) });
+        if (!res.ok) throw new Error(`PUT failed: ${res.status}`);
+      } else {
+        const res = await fetch("/api/purchases", { method: "POST", headers, body: JSON.stringify(body) });
+        if (!res.ok) throw new Error(`POST failed: ${res.status}`);
+      }
+      setShowEdit(false);
+      await loadPurchases(selectedMonth);
+    } catch (e) {
+      console.error("[history] save failed:", e);
+      alert("保存に失敗しました。コンソールを確認してください。");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ===== 削除 =====
+  const handleDelete = async (p: PurchaseDoc) => {
     if (!user) return;
-    loadPurchases(selectedMonth);
-  }, [user, selectedMonth, loadPurchases]);
+    if (!confirm(`「${p.itemName}」を削除しますか？`)) return;
+    try {
+      const headers = await authHeader(user);
+      const res = await fetch(`/api/purchases/${p.id}`, { method: "DELETE", headers });
+      if (!res.ok) throw new Error(`DELETE failed: ${res.status}`);
+      await loadPurchases(selectedMonth);
+    } catch (e) {
+      console.error("[history] delete failed:", e);
+      alert("削除に失敗しました。");
+    }
+  };
+
+  // ===== 新品目追加 =====
+  const commitNewCategory = async () => {
+    if (!user || !newCatName.trim()) { setAddingCat(false); return; }
+    const name = newCatName.trim();
+    try {
+      const headers = await authHeader(user);
+      await fetch("/api/categories", { method: "POST", headers, body: JSON.stringify({ name }) });
+      await loadCategories();
+      setFCategory(name);
+    } catch (e) { console.error("[history] addCategory failed:", e); }
+    setAddingCat(false); setNewCatName("");
+  };
 
   // ===== 集計（フィルター前・全件） =====
   const totalPrice        = purchases.reduce((s, p) => s + (p.price ?? 0), 0);
@@ -259,7 +378,7 @@ export default function HistoryPage() {
         </select>
 
         <button
-          onClick={() => alert("Step4で編集モーダルを実装予定です")}
+          onClick={() => openModal(null)}
           style={{
             marginLeft: "auto", padding: "6px 14px", borderRadius: 7,
             border: "none", background: "linear-gradient(90deg,#1e40af,#3b82f6)",
@@ -322,16 +441,16 @@ export default function HistoryPage() {
                   </div>
                 </div>
 
-                {/* 編集・削除（Step4） */}
+                {/* 編集・削除 */}
                 <div style={{ display: "flex", gap: 4, paddingTop: 1 }}>
-                  <button disabled style={{
-                    padding: "3px 8px", borderRadius: 5, border: "1px solid #e2e8f0",
-                    background: "#f8fafc", color: "#94a3b8", fontSize: 10, cursor: "not-allowed",
+                  <button onClick={() => openModal(p)} style={{
+                    padding: "3px 8px", borderRadius: 5, border: "1px solid #bfdbfe",
+                    background: "#eff6ff", color: "#1e40af", fontSize: 10, cursor: "pointer",
                     fontFamily: "inherit",
                   }}>✏️</button>
-                  <button disabled style={{
+                  <button onClick={() => handleDelete(p)} style={{
                     padding: "3px 8px", borderRadius: 5, border: "1px solid #fca5a5",
-                    background: "#fff1f2", color: "#fca5a5", fontSize: 10, cursor: "not-allowed",
+                    background: "#fff1f2", color: "#dc2626", fontSize: 10, cursor: "pointer",
                     fontFamily: "inherit",
                   }}>🗑️</button>
                 </div>
@@ -424,6 +543,185 @@ export default function HistoryPage() {
           </div>
         </div>
       )}
+      {/* ===== 編集モーダル ===== */}
+      {showEdit && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.5)",
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowEdit(false); }}
+        >
+          <div style={{ background: "white", borderRadius: 16, padding: 24, width: 520,
+            maxWidth: "96vw", maxHeight: "90vh", overflowY: "auto",
+            boxShadow: "0 20px 60px rgba(0,0,0,0.3)" }}>
+
+            <div style={{ fontSize: 16, fontWeight: 900, color: "#1e293b", marginBottom: 18 }}>
+              {editTarget ? "✏️ 購入記録を編集" : "＋ 購入記録を追加"}
+            </div>
+
+            {/* 2列グリッド */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+
+              {/* 日付 */}
+              <div style={{ gridColumn: "1" }}>
+                <label style={lbl}>日付</label>
+                <input type="date" value={fDate} onChange={(e) => setFDate(e.target.value)}
+                  style={inp} />
+              </div>
+
+              {/* 品目 */}
+              <div style={{ gridColumn: "2" }}>
+                <label style={lbl}>品目</label>
+                {addingCat ? (
+                  <input autoFocus placeholder="新しい品目名" value={newCatName}
+                    onChange={(e) => setNewCatName(e.target.value)}
+                    onBlur={commitNewCategory}
+                    onKeyDown={(e) => { if (e.key === "Enter") commitNewCategory(); }}
+                    style={inp} />
+                ) : (
+                  <select value={fCategory} onChange={(e) => {
+                    if (e.target.value === "__add__") { setAddingCat(true); setNewCatName(""); }
+                    else setFCategory(e.target.value);
+                  }} style={inp}>
+                    <option value="">選択してください</option>
+                    {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                    <option value="__add__">＋ 新しい品目を追加</option>
+                  </select>
+                )}
+              </div>
+
+              {/* 商品名 */}
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={lbl}>商品名</label>
+                <input value={fItemName} onChange={(e) => setFItemName(e.target.value)}
+                  placeholder="商品名を入力" style={inp} />
+              </div>
+
+              {/* 個数・単価 */}
+              <div>
+                <label style={lbl}>個数</label>
+                <input type="number" min={1} value={fQuantity}
+                  onChange={(e) => setFQuantity(Number(e.target.value))} style={inp} />
+              </div>
+              <div>
+                <label style={lbl}>単価（円）</label>
+                <input type="number" min={0} value={fUnitPrice}
+                  onChange={(e) => setFUnitPrice(Number(e.target.value))} style={inp} />
+              </div>
+
+              {/* 小計 */}
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={lbl}>小計（自動計算）</label>
+                <div style={{ ...inp, background: "#f8fafc", color: "#64748b" }}>
+                  ¥{(fQuantity * fUnitPrice).toLocaleString()}
+                </div>
+              </div>
+
+              {/* クーポン・ポイント */}
+              <div>
+                <label style={lbl}>クーポン値引き（円）</label>
+                <input type="number" min={0} value={fCoupon}
+                  onChange={(e) => setFCoupon(Number(e.target.value))} style={inp} />
+              </div>
+              <div>
+                <label style={lbl}>ポイント使用（円相当）</label>
+                <input type="number" min={0} value={fPoints}
+                  onChange={(e) => setFPoints(Number(e.target.value))} style={inp} />
+              </div>
+
+              {/* 実支払いプレビュー */}
+              <div style={{ gridColumn: "1 / -1", background: "#f8fafc", borderRadius: 8,
+                padding: "10px 14px", fontSize: 13, border: "1px solid #e2e8f0" }}>
+                {(() => {
+                  const sub = fQuantity * fUnitPrice;
+                  const total = Math.max(0, sub - fCoupon - fPoints);
+                  return (
+                    <>
+                      <div style={{ color: "#64748b" }}>小計: ¥{sub.toLocaleString()}</div>
+                      {fCoupon > 0 && <div style={{ color: "#059669" }}>クーポン値引き: −¥{fCoupon.toLocaleString()}</div>}
+                      {fPoints > 0 && <div style={{ color: "#d97706" }}>ポイント使用: −¥{fPoints.toLocaleString()}</div>}
+                      <div style={{ fontWeight: 900, color: "#1e293b", marginTop: 4, fontSize: 15 }}>
+                        実支払い合計: ¥{total.toLocaleString()}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* 仕入れ先 */}
+              <div>
+                <label style={lbl}>仕入れ先</label>
+                <input value={fShop} onChange={(e) => setFShop(e.target.value)}
+                  placeholder="楽天市場 など" style={inp} />
+              </div>
+
+              {/* 支払いカード */}
+              <div>
+                <label style={lbl}>支払いカード</label>
+                <select value={fCardId} onChange={(e) => setFCardId(e.target.value)} style={inp}>
+                  <option value="">未選択</option>
+                  {userCards.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  <option value="__points__">ポイント利用</option>
+                </select>
+              </div>
+
+              {/* メモ */}
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={lbl}>メモ</label>
+                <textarea value={fMemo} onChange={(e) => setFMemo(e.target.value)}
+                  placeholder="自由記入" rows={2}
+                  style={{ ...inp, resize: "vertical" as const }} />
+              </div>
+            </div>
+
+            {/* ステータス */}
+            <div style={{ marginTop: 14, display: "flex", flexWrap: "wrap", gap: 10 }}>
+              {([
+                { label: "届き済", val: fArrived, set: setFArrived },
+                { label: "領収証あり", val: fReceipt, set: setFReceipt },
+                { label: "印刷済", val: fPrinted, set: setFPrinted },
+                { label: "請求済", val: fBilled, set: setFBilled },
+              ] as { label: string; val: boolean; set: (v: boolean) => void }[]).map(({ label, val, set }) => (
+                <label key={label} style={{ display: "flex", alignItems: "center", gap: 6,
+                  fontSize: 12, cursor: "pointer", userSelect: "none" as const }}>
+                  <input type="checkbox" checked={val} onChange={(e) => set(e.target.checked)} />
+                  {label}
+                </label>
+              ))}
+              {/* 経費クラウド（青強調） */}
+              <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12,
+                cursor: "pointer", userSelect: "none" as const,
+                background: fExpense ? "#dbeafe" : "#f1f5f9",
+                padding: "3px 10px", borderRadius: 6, fontWeight: fExpense ? 700 : 400,
+                color: fExpense ? "#1e40af" : "#64748b" }}>
+                <input type="checkbox" checked={fExpense} onChange={(e) => setFExpense(e.target.checked)} />
+                📊 経費クラウドサービス入力済
+              </label>
+            </div>
+
+            {/* ボタン */}
+            <div style={{ display: "flex", gap: 8, marginTop: 20 }}>
+              <button onClick={handleSave} disabled={saving || !fItemName.trim()}
+                className="btn-primary" style={{ flex: 1, fontSize: 14 }}>
+                {saving ? "保存中…" : "💾 保存"}
+              </button>
+              <button onClick={() => setShowEdit(false)}
+                style={{ flex: 1, padding: "11px 0", borderRadius: 10,
+                  border: "1px solid #e2e8f0", background: "white",
+                  color: "#64748b", fontSize: 14, cursor: "pointer", fontFamily: "inherit" }}>
+                キャンセル
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+// ===== スタイル定数 =====
+const lbl: React.CSSProperties = { fontSize: 11, color: "#64748b", display: "block", marginBottom: 3 };
+const inp: React.CSSProperties = {
+  width: "100%", padding: "8px 10px", borderRadius: 7,
+  border: "1px solid #e2e8f0", fontSize: 13,
+  fontFamily: "inherit", boxSizing: "border-box" as const,
+};
