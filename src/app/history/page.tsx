@@ -56,6 +56,7 @@ export default function HistoryPage() {
   const [filterCategory, setFilterCategory] = useState("");
   const [filterShop, setFilterShop]         = useState("");
   const [filterCard, setFilterCard]         = useState("");
+  const [filterStatus, setFilterStatus]     = useState("");
   const [showOnlyExpenseNotEntered, setShowOnlyExpenseNotEntered] = useState(false);
 
   // 請求書モーダル
@@ -239,6 +240,10 @@ export default function HistoryPage() {
     if (filterShop     && p.shop !== filterShop)         return false;
     if (filterCard     && p.cardName !== filterCard)     return false;
     if (showOnlyExpenseNotEntered && p.expenseEntered)   return false;
+    if (filterStatus === "not_arrived"    && p.arrived)         return false;
+    if (filterStatus === "no_receipt"     && p.hasReceipt)      return false;
+    if (filterStatus === "not_printed"    && p.printed)         return false;
+    if (filterStatus === "expense_needed" && p.expenseEntered)  return false;
     return true;
   });
 
@@ -375,6 +380,15 @@ export default function HistoryPage() {
         <select value={filterCard} onChange={(e) => setFilterCard(e.target.value)} style={selectStyle}>
           <option value="">カード: 全て</option>
           {cardOptions.map((c) => <option key={c} value={c}>{c}</option>)}
+        </select>
+
+        {/* ステータス */}
+        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={selectStyle}>
+          <option value="">ステータス: 全て</option>
+          <option value="not_arrived">未着のみ</option>
+          <option value="no_receipt">領収証なしのみ</option>
+          <option value="not_printed">未印刷のみ</option>
+          <option value="expense_needed">経費未入力のみ</option>
         </select>
 
         <button
@@ -600,12 +614,18 @@ export default function HistoryPage() {
               <div>
                 <label style={lbl}>個数</label>
                 <input type="number" min={1} value={fQuantity}
-                  onChange={(e) => setFQuantity(Number(e.target.value))} style={inp} />
+                  onChange={(e) => setFQuantity(Number(e.target.value))}
+                  onFocus={(e) => { if (e.target.value === "0" || e.target.value === "1") e.target.select(); }}
+                  onBlur={(e) => { if (e.target.value === "") setFQuantity(1); }}
+                  style={inp} />
               </div>
               <div>
                 <label style={lbl}>単価（円）</label>
                 <input type="number" min={0} value={fUnitPrice}
-                  onChange={(e) => setFUnitPrice(Number(e.target.value))} style={inp} />
+                  onChange={(e) => setFUnitPrice(Number(e.target.value))}
+                  onFocus={(e) => { if (e.target.value === "0") e.target.select(); }}
+                  onBlur={(e) => { if (e.target.value === "") setFUnitPrice(0); }}
+                  style={inp} />
               </div>
 
               {/* 小計 */}
@@ -620,12 +640,18 @@ export default function HistoryPage() {
               <div>
                 <label style={lbl}>クーポン値引き（円）</label>
                 <input type="number" min={0} value={fCoupon}
-                  onChange={(e) => setFCoupon(Number(e.target.value))} style={inp} />
+                  onChange={(e) => setFCoupon(Number(e.target.value))}
+                  onFocus={(e) => { if (e.target.value === "0") e.target.select(); }}
+                  onBlur={(e) => { if (e.target.value === "") setFCoupon(0); }}
+                  style={inp} />
               </div>
               <div>
                 <label style={lbl}>ポイント使用（円相当）</label>
                 <input type="number" min={0} value={fPoints}
-                  onChange={(e) => setFPoints(Number(e.target.value))} style={inp} />
+                  onChange={(e) => setFPoints(Number(e.target.value))}
+                  onFocus={(e) => { if (e.target.value === "0") e.target.select(); }}
+                  onBlur={(e) => { if (e.target.value === "") setFPoints(0); }}
+                  style={inp} />
               </div>
 
               {/* 実支払いプレビュー */}
