@@ -38,7 +38,9 @@ async function verifyToken(req: NextRequest): Promise<string | null> {
   }
 }
 
-// ===== GET: 指定カード・月の購入合計取得 =====
+// ===== GET: 購入記録取得 =====
+// モード①: ?month=YYYY-MM             → 該当月の全ドキュメント { purchases: PurchaseDoc[] }
+// モード②: ?cardId=xxx&month=YYYY-MM  → 該当cardId・月のprice合計 { total: number }
 export async function GET(req: NextRequest) {
   if (!adminDb) {
     return NextResponse.json({ error: "Admin SDK未設定" }, { status: 503 });
@@ -53,8 +55,8 @@ export async function GET(req: NextRequest) {
   const cardId = searchParams.get("cardId");
   const month  = searchParams.get("month");   // "YYYY-MM"
 
-  if (!cardId || !month) {
-    return NextResponse.json({ error: "cardId と month は必須です" }, { status: 400 });
+  if (!month) {
+    return NextResponse.json({ error: "month は必須です" }, { status: 400 });
   }
 
   try {
@@ -64,6 +66,28 @@ export async function GET(req: NextRequest) {
       .collection("purchases")
       .get();
 
+    // モード①: cardId なし → 月の全ドキュメント返却
+    if (!cardId) {
+      const purchases: Record<string, unknown>[] = [];
+      snap.docs.forEach((d) => {
+        const data = d.data();
+        const jstMonth = toJstYearMonth(data.purchasedAt as Timestamp | null);
+        if (jstMonth === month) {
+          // purchasedAt を ISO 文字列に変換して返す
+          const purchasedAt = data.purchasedAt
+            ? (data.purchasedAt as Timestamp).toDate().toISOString()
+            : "";
+          purchases.push({ ...data, purchasedAt });
+        }
+      });
+      // purchasedAt 降順ソート
+      purchases.sort((a, b) =>
+        String(b.purchasedAt ?? "").localeCompare(String(a.purchasedAt ?? ""))
+      );
+      return NextResponse.json({ purchases });
+    }
+
+    // モード②: cardId あり → price 合計
     let total = 0;
     snap.docs.forEach((d) => {
       const data = d.data();
