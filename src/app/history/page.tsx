@@ -72,10 +72,10 @@ export default function HistoryPage() {
   const [fDate, setFDate]             = useState("");
   const [fCategory, setFCategory]     = useState("");
   const [fItemName, setFItemName]     = useState("");
-  const [fQuantity, setFQuantity]     = useState(1);
-  const [fUnitPrice, setFUnitPrice]   = useState(0);
-  const [fCoupon, setFCoupon]         = useState(0);
-  const [fPoints, setFPoints]         = useState(0);
+  const [fQuantity, setFQuantity]     = useState("");
+  const [fUnitPrice, setFUnitPrice]   = useState("");
+  const [fCoupon, setFCoupon]         = useState("");
+  const [fPoints, setFPoints]         = useState("");
   const [fShop, setFShop]             = useState("");
   const [fCardId, setFCardId]         = useState("");
   const [fMemo, setFMemo]             = useState("");
@@ -141,15 +141,15 @@ export default function HistoryPage() {
     if (p) {
       const d = p.purchasedAt ? new Date(p.purchasedAt).toISOString().slice(0,10) : "";
       setFDate(d); setFCategory(p.category ?? ""); setFItemName(p.itemName ?? "");
-      setFQuantity(p.quantity ?? 1); setFUnitPrice(p.unitPrice ?? p.price ?? 0);
-      setFCoupon(p.couponDiscount ?? 0); setFPoints(p.pointsUsed ?? 0);
+      setFQuantity(String(p.quantity ?? 1)); setFUnitPrice(String(p.unitPrice ?? p.price ?? 0));
+      setFCoupon(String(p.couponDiscount ?? 0)); setFPoints(String(p.pointsUsed ?? 0));
       setFShop(p.shop ?? ""); setFCardId(p.cardId ?? ""); setFMemo(p.memo ?? "");
       setFArrived(p.arrived ?? false); setFReceipt(p.hasReceipt ?? false);
       setFPrinted(p.printed ?? false); setFBilled(false); setFExpense(p.expenseEntered ?? false);
     } else {
       const today = new Date().toISOString().slice(0,10);
-      setFDate(today); setFCategory(""); setFItemName(""); setFQuantity(1); setFUnitPrice(0);
-      setFCoupon(0); setFPoints(0); setFShop(""); setFCardId(userCards[0]?.id ?? "");
+      setFDate(today); setFCategory(""); setFItemName(""); setFQuantity("1"); setFUnitPrice("");
+      setFCoupon(""); setFPoints(""); setFShop(""); setFCardId(userCards[0]?.id ?? "");
       setFMemo(""); setFArrived(false); setFReceipt(false); setFPrinted(false);
       setFBilled(false); setFExpense(false);
     }
@@ -163,16 +163,20 @@ export default function HistoryPage() {
     setSaving(true);
     try {
       const headers = await authHeader(user);
-      const subtotal = fQuantity * fUnitPrice;
-      const price = Math.max(0, subtotal - fCoupon - fPoints);
+      const qty     = parseInt(fQuantity)    || 1;
+      const unit    = parseInt(fUnitPrice)   || 0;
+      const coupon  = parseInt(fCoupon)      || 0;
+      const points  = parseInt(fPoints)      || 0;
+      const subtotal = qty * unit;
+      const price = Math.max(0, subtotal - coupon - points);
       const selCard = fCardId === "__points__"
         ? { id: "", name: "ポイント利用" }
         : userCards.find((c) => c.id === fCardId) ?? { id: fCardId, name: "" };
       const body = {
         itemName: fItemName.trim(), price, realPrice: price,
-        savedAmount: fCoupon + fPoints, cardId: selCard.id, cardName: selCard.name,
-        shop: fShop.trim(), category: fCategory, quantity: fQuantity,
-        unitPrice: fUnitPrice, couponDiscount: fCoupon, pointsUsed: fPoints,
+        savedAmount: coupon + points, cardId: selCard.id, cardName: selCard.name,
+        shop: fShop.trim(), category: fCategory, quantity: qty,
+        unitPrice: unit, couponDiscount: coupon, pointsUsed: points,
         memo: fMemo.trim(), hasReceipt: fReceipt, printed: fPrinted,
         arrived: fArrived, expenseEntered: fExpense,
       };
@@ -613,18 +617,14 @@ export default function HistoryPage() {
               {/* 個数・単価 */}
               <div>
                 <label style={lbl}>個数</label>
-                <input type="number" min={1} value={fQuantity}
-                  onChange={(e) => setFQuantity(Number(e.target.value))}
-                  onFocus={(e) => { if (e.target.value === "0" || e.target.value === "1") e.target.select(); }}
-                  onBlur={(e) => { if (e.target.value === "") setFQuantity(1); }}
+                <input type="number" min={1} value={fQuantity} placeholder="1"
+                  onChange={(e) => setFQuantity(e.target.value)}
                   style={inp} />
               </div>
               <div>
                 <label style={lbl}>単価（円）</label>
-                <input type="number" min={0} value={fUnitPrice}
-                  onChange={(e) => setFUnitPrice(Number(e.target.value))}
-                  onFocus={(e) => { if (e.target.value === "0") e.target.select(); }}
-                  onBlur={(e) => { if (e.target.value === "") setFUnitPrice(0); }}
+                <input type="number" min={0} value={fUnitPrice} placeholder="0"
+                  onChange={(e) => setFUnitPrice(e.target.value)}
                   style={inp} />
               </div>
 
@@ -632,25 +632,21 @@ export default function HistoryPage() {
               <div style={{ gridColumn: "1 / -1" }}>
                 <label style={lbl}>小計（自動計算）</label>
                 <div style={{ ...inp, background: "#f8fafc", color: "#64748b" }}>
-                  ¥{(fQuantity * fUnitPrice).toLocaleString()}
+                  ¥{((parseInt(fQuantity) || 1) * (parseInt(fUnitPrice) || 0)).toLocaleString()}
                 </div>
               </div>
 
               {/* クーポン・ポイント */}
               <div>
                 <label style={lbl}>クーポン値引き（円）</label>
-                <input type="number" min={0} value={fCoupon}
-                  onChange={(e) => setFCoupon(Number(e.target.value))}
-                  onFocus={(e) => { if (e.target.value === "0") e.target.select(); }}
-                  onBlur={(e) => { if (e.target.value === "") setFCoupon(0); }}
+                <input type="number" min={0} value={fCoupon} placeholder="0"
+                  onChange={(e) => setFCoupon(e.target.value)}
                   style={inp} />
               </div>
               <div>
                 <label style={lbl}>ポイント使用（円相当）</label>
-                <input type="number" min={0} value={fPoints}
-                  onChange={(e) => setFPoints(Number(e.target.value))}
-                  onFocus={(e) => { if (e.target.value === "0") e.target.select(); }}
-                  onBlur={(e) => { if (e.target.value === "") setFPoints(0); }}
+                <input type="number" min={0} value={fPoints} placeholder="0"
+                  onChange={(e) => setFPoints(e.target.value)}
                   style={inp} />
               </div>
 
@@ -658,13 +654,15 @@ export default function HistoryPage() {
               <div style={{ gridColumn: "1 / -1", background: "#f8fafc", borderRadius: 8,
                 padding: "10px 14px", fontSize: 13, border: "1px solid #e2e8f0" }}>
                 {(() => {
-                  const sub = fQuantity * fUnitPrice;
-                  const total = Math.max(0, sub - fCoupon - fPoints);
+                  const sub = (parseInt(fQuantity) || 1) * (parseInt(fUnitPrice) || 0);
+                  const coupon = parseInt(fCoupon) || 0;
+                  const points = parseInt(fPoints) || 0;
+                  const total = Math.max(0, sub - coupon - points);
                   return (
                     <>
                       <div style={{ color: "#64748b" }}>小計: ¥{sub.toLocaleString()}</div>
-                      {fCoupon > 0 && <div style={{ color: "#059669" }}>クーポン値引き: −¥{fCoupon.toLocaleString()}</div>}
-                      {fPoints > 0 && <div style={{ color: "#d97706" }}>ポイント使用: −¥{fPoints.toLocaleString()}</div>}
+                      {coupon > 0 && <div style={{ color: "#059669" }}>クーポン値引き: −¥{coupon.toLocaleString()}</div>}
+                      {points > 0 && <div style={{ color: "#d97706" }}>ポイント使用: −¥{points.toLocaleString()}</div>}
                       <div style={{ fontWeight: 900, color: "#1e293b", marginTop: 4, fontSize: 15 }}>
                         実支払い合計: ¥{total.toLocaleString()}
                       </div>
