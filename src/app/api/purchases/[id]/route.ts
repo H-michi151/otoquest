@@ -60,6 +60,7 @@ export async function PUT(
       printed: boolean;
       arrived: boolean;
       expenseEntered: boolean;
+      billingAmount: number;
     }>;
 
     await adminDb

@@ -125,6 +125,7 @@ export type PurchaseDoc = {
   printed: boolean;        // 印刷済み
   arrived: boolean;        // 届き済み
   expenseEntered: boolean; // 経費クラウドサービス入力済み
+  billingAmount?: number;  // 請求金額（手動上書き可、未設定時はpriceと同値として扱う）
 };
 
 export async function loadUserPurchases(uid: string): Promise<PurchaseDoc[]> {

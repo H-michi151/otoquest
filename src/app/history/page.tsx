@@ -84,6 +84,9 @@ export default function HistoryPage() {
   const [fPrinted, setFPrinted]       = useState(false);
   const [fBilled, setFBilled]         = useState(false);
   const [fExpense, setFExpense]       = useState(false);
+  // 請求金額
+  const [fBillingAmount, setFBillingAmount]               = useState("");
+  const [billingAmountManuallySet, setBillingAmountManuallySet] = useState(false);
   // 新品目追加
   const [addingCat, setAddingCat]     = useState(false);
   const [newCatName, setNewCatName]   = useState("");
@@ -146,12 +149,18 @@ export default function HistoryPage() {
       setFShop(p.shop ?? ""); setFCardId(p.cardId ?? ""); setFMemo(p.memo ?? "");
       setFArrived(p.arrived ?? false); setFReceipt(p.hasReceipt ?? false);
       setFPrinted(p.printed ?? false); setFBilled(false); setFExpense(p.expenseEntered ?? false);
+      // 請求金額：既存値がbillingAmountと異なる場合は手動設定済み扱い
+      const existingBilling = p.billingAmount ?? p.price ?? 0;
+      const existingPrice   = p.price ?? 0;
+      setFBillingAmount(String(existingBilling));
+      setBillingAmountManuallySet(existingBilling !== existingPrice);
     } else {
       const today = new Date().toISOString().slice(0,10);
       setFDate(today); setFCategory(""); setFItemName(""); setFQuantity("1"); setFUnitPrice("");
       setFCoupon(""); setFPoints(""); setFShop(""); setFCardId(userCards[0]?.id ?? "");
       setFMemo(""); setFArrived(false); setFReceipt(false); setFPrinted(false);
       setFBilled(false); setFExpense(false);
+      setFBillingAmount(""); setBillingAmountManuallySet(false);
     }
     setAddingCat(false); setNewCatName("");
     setShowEdit(true);
@@ -179,6 +188,7 @@ export default function HistoryPage() {
         unitPrice: unit, couponDiscount: coupon, pointsUsed: points,
         memo: fMemo.trim(), hasReceipt: fReceipt, printed: fPrinted,
         arrived: fArrived, expenseEntered: fExpense,
+        billingAmount: billingAmountManuallySet ? (parseInt(fBillingAmount) || 0) : price,
       };
       if (editTarget) {
         const res = await fetch(`/api/purchases/${editTarget.id}`, { method: "PUT", headers, body: JSON.stringify(body) });
@@ -658,6 +668,11 @@ export default function HistoryPage() {
                   const coupon = parseInt(fCoupon) || 0;
                   const points = parseInt(fPoints) || 0;
                   const total = Math.max(0, sub - coupon - points);
+                  // 自動連動：未手動設定の場合は請求金額を実支払い合計に合わせる
+                  if (!billingAmountManuallySet) {
+                    const next = String(total);
+                    if (fBillingAmount !== next) setFBillingAmount(next);
+                  }
                   return (
                     <>
                       <div style={{ color: "#64748b" }}>小計: ¥{sub.toLocaleString()}</div>
@@ -668,6 +683,39 @@ export default function HistoryPage() {
                       </div>
                     </>
                   );
+                })()}
+              </div>
+
+              {/* 請求金額 */}
+              <div style={{ gridColumn: "1 / -1" }}>
+                <label style={lbl}>請求金額（円）</label>
+                <input
+                  type="number" min={0}
+                  value={fBillingAmount}
+                  placeholder="実支払い合計と同じ"
+                  onChange={(e) => {
+                    setFBillingAmount(e.target.value);
+                    setBillingAmountManuallySet(true);
+                  }}
+                  style={{
+                    ...inp,
+                    background: (() => {
+                      const billing = parseInt(fBillingAmount) || 0;
+                      const sub = (parseInt(fQuantity) || 1) * (parseInt(fUnitPrice) || 0);
+                      const price = Math.max(0, sub - (parseInt(fCoupon) || 0) - (parseInt(fPoints) || 0));
+                      return billingAmountManuallySet && billing !== price ? "#fef9c3" : "white";
+                    })(),
+                  }}
+                />
+                {billingAmountManuallySet && (() => {
+                  const billing = parseInt(fBillingAmount) || 0;
+                  const sub = (parseInt(fQuantity) || 1) * (parseInt(fUnitPrice) || 0);
+                  const price = Math.max(0, sub - (parseInt(fCoupon) || 0) - (parseInt(fPoints) || 0));
+                  return billing !== price ? (
+                    <div style={{ fontSize: 11, color: "#d97706", marginTop: 3 }}>
+                      ⚠️ 実支払い合計（¥{price.toLocaleString()}）と異なる請求金額です
+                    </div>
+                  ) : null;
                 })()}
               </div>
 

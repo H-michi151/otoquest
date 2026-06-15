@@ -136,6 +136,7 @@ export async function POST(req: NextRequest) {
       printed?: boolean;
       arrived?: boolean;
       expenseEntered?: boolean;
+      billingAmount?: number;
     };
 
     if (!body.itemName || body.price == null) {
@@ -176,6 +177,7 @@ export async function POST(req: NextRequest) {
         printed:        body.printed        ?? false,
         arrived:        body.arrived        ?? false,
         expenseEntered: body.expenseEntered ?? false,
+        billingAmount:  body.billingAmount  ?? body.price,
       });
 
     console.log("[POST /api/purchases] 書き込み成功:", { uid, id, itemName: body.itemName, billingMonth });
