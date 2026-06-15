@@ -235,6 +235,50 @@ export default function HistoryPage() {
     setAddingCat(false); setNewCatName("");
   };
 
+  // ===== CSVエクスポート =====
+  const handleExportCsv = () => {
+    const bool = (v: boolean | undefined) => v ? "済" : "未";
+    const esc  = (s: string | number | undefined) => {
+      const str = String(s ?? "");
+      return str.includes(",") || str.includes("\"") || str.includes("\n")
+        ? `"${str.replace(/"/g, "\"\"")}"`
+        : str;
+    };
+    const headers = [
+      "日付", "品目", "商品名", "個数", "単価", "小計",
+      "クーポン値引き", "ポイント使用", "実支払い合計", "請求金額",
+      "仕入れ先", "支払いカード",
+      "届き済", "領収証あり", "印刷済", "請求済", "経費クラウド入力済", "メモ",
+    ];
+    const rows = filtered.map((p) => {
+      const date = p.purchasedAt ? new Date(p.purchasedAt).toLocaleDateString("ja-JP") : "";
+      const qty    = p.quantity  ?? 1;
+      const unit   = p.unitPrice ?? p.price ?? 0;
+      const sub    = qty * unit;
+      const coupon = p.couponDiscount ?? 0;
+      const pts    = p.pointsUsed    ?? 0;
+      const price  = p.price         ?? 0;
+      const billing = p.billingAmount ?? price;
+      return [
+        date, p.category ?? "", p.itemName, qty, unit, sub,
+        coupon, pts, price, billing,
+        p.shop ?? "", p.cardName ?? "",
+        bool(p.arrived), bool(p.hasReceipt), bool(p.printed),
+        bool(p.expenseEntered /* billedフィールドなし: expenseで代用 */),
+        bool(p.expenseEntered), p.memo ?? "",
+      ].map(esc).join(",");
+    });
+    const csv = [headers.join(","), ...rows].join("\r\n");
+    const bom = "\uFEFF"; // BOM付きUTF-8
+    const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8;" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `otoquest_purchases_${selectedMonth}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   // ===== 集計（フィルター前・全件） =====
   const totalPrice        = purchases.reduce((s, p) => s + (p.billingAmount ?? p.price ?? 0), 0);
   const totalDiscount     = purchases.reduce((s, p) => s + (p.couponDiscount ?? 0) + (p.pointsUsed ?? 0), 0);
@@ -309,11 +353,12 @@ export default function HistoryPage() {
           </div>
           <div style={{ marginLeft: "auto", display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button
-              disabled
+              onClick={handleExportCsv}
               style={{
                 padding: "8px 14px", borderRadius: 8,
-                border: "1px solid #e2e8f0", background: "#f8fafc",
-                color: "#94a3b8", fontSize: 12, cursor: "not-allowed", fontFamily: "inherit",
+                border: "1px solid #059669", background: "#f0fdf4",
+                color: "#059669", fontSize: 12, cursor: "pointer", fontFamily: "inherit",
+                fontWeight: 700,
               }}
             >
               📥 CSVエクスポート
