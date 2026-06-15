@@ -576,7 +576,6 @@ export default function HistoryPage() {
         <div
           style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(0,0,0,0.5)",
             display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
-          onClick={(e) => { if (e.target === e.currentTarget) setShowEdit(false); }}
         >
           <div style={{ background: "white", borderRadius: 16, padding: 24, width: 520,
             maxWidth: "96vw", maxHeight: "90vh", overflowY: "auto",
