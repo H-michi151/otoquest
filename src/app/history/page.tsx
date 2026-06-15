@@ -236,7 +236,7 @@ export default function HistoryPage() {
   };
 
   // ===== 集計（フィルター前・全件） =====
-  const totalPrice        = purchases.reduce((s, p) => s + (p.price ?? 0), 0);
+  const totalPrice        = purchases.reduce((s, p) => s + (p.billingAmount ?? p.price ?? 0), 0);
   const totalDiscount     = purchases.reduce((s, p) => s + (p.couponDiscount ?? 0) + (p.pointsUsed ?? 0), 0);
   const expenseEnteredCnt = purchases.filter((p) => p.expenseEntered).length;
   const totalCnt          = purchases.length;
@@ -465,7 +465,7 @@ export default function HistoryPage() {
                 {/* 金額 */}
                 <div style={{ textAlign: "right", minWidth: 80 }}>
                   <div style={{ fontSize: 17, fontWeight: 900, color: "#1e293b" }}>
-                    ¥{(p.price ?? 0).toLocaleString()}
+                    ¥{(p.billingAmount ?? p.price ?? 0).toLocaleString()}
                   </div>
                 </div>
 
