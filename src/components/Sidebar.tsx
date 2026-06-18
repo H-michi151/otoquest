@@ -7,6 +7,7 @@ const navItems = [
   { href: "/compare", icon: "💰", label: "価格比較", sub: "実質価格・最安判定" },
   { href: "/search",    icon: "⚔️", label: "商品検索",       sub: "最安値・最適購入" },
   { href: "/cards", icon: "💳", label: "カード管理", sub: "クレカ最適化" },
+  { href: "/watchlist", icon: "👁", label: "ウォッチリスト", sub: "価格監視・最安値" },
   { href: "/matrix", icon: "📊", label: "還元率マトリクス", sub: "28パターン比較" },
   { href: "/orders", icon: "📦", label: "注文管理", sub: "発送追跡" },
   { href: "/history", icon: "💚", label: "購入履歴・節約額", sub: "節約実績" },
