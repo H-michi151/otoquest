@@ -199,6 +199,9 @@ function ChartView({ item, onBack }: { item: WatchlistItem; onBack: () => void }
 export default function WatchlistPage() {
   const { user } = useAuth();
   const isAdmin = user?.uid === ADMIN_UID;
+  console.log("currentUID:", user?.uid);
+  console.log("ADMIN_UID:", ADMIN_UID);
+  console.log("isAdmin:", isAdmin);
 
   const [items, setItems]       = useState<WatchlistItem[]>([]);
   const [loading, setLoading]   = useState(true);
