@@ -73,6 +73,7 @@ export async function PUT(
       category?: string;
       name?: string;
       keyword?: string;
+      kakakuUrl?: string;
       order?: number;
     };
 
@@ -92,16 +93,16 @@ export async function PUT(
       };
       const priceHistory = [newEntry, ...existingHistory].slice(0, 50);
 
-      await docRef.set(
-        {
+      const updateData: Record<string, unknown> = {
           previousPrice: prevPrice,
           currentPrice:  body.currentPrice,
           currentShop:   body.currentShop ?? "",
           priceHistory,
           updatedAt:     FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
+        };
+      if (body.kakakuUrl !== undefined) updateData.kakakuUrl = body.kakakuUrl;
+
+      await docRef.set(updateData, { merge: true });
 
       console.log("[PUT /api/watchlist/:id] 価格更新成功:", { id, currentPrice: body.currentPrice });
       return NextResponse.json({ ok: true, id, type: "price" });
@@ -119,10 +120,11 @@ export async function PUT(
 
     // ===== C) その他フィールド更新（category / name / keyword / order） =====
     const updates: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
-    if (body.category !== undefined) updates.category = body.category;
-    if (body.name     !== undefined) updates.name     = body.name;
-    if (body.keyword  !== undefined) updates.keyword  = body.keyword;
-    if (body.order    !== undefined) updates.order    = body.order;
+    if (body.category  !== undefined) updates.category  = body.category;
+    if (body.name      !== undefined) updates.name      = body.name;
+    if (body.keyword   !== undefined) updates.keyword   = body.keyword;
+    if (body.kakakuUrl !== undefined) updates.kakakuUrl = body.kakakuUrl;
+    if (body.order     !== undefined) updates.order     = body.order;
 
     await docRef.set(updates, { merge: true });
     console.log("[PUT /api/watchlist/:id] フィールド更新成功:", { id });

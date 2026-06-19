@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "seed:watchlist": "GOOGLE_APPLICATION_CREDENTIALS=/home/user/デスクトップ/オトクエスト/otoquest-app-firebase-adminsdk-fbsvc-ef7e2f6916.json tsx src/scripts/seedWatchlist.ts"
+    "seed:watchlist": "GOOGLE_APPLICATION_CREDENTIALS=/home/user/デスクトップ/オトクエスト/otoquest-app-firebase-adminsdk-fbsvc-ef7e2f6916.json tsx src/scripts/seedWatchlist.ts",
+    "update:watchlist-urls": "GOOGLE_APPLICATION_CREDENTIALS=/home/user/デスクトップ/オトクエスト/otoquest-app-firebase-adminsdk-fbsvc-ef7e2f6916.json tsx src/scripts/updateWatchlistUrls.ts"
   },
   "dependencies": {
     "firebase": "^12.12.0",

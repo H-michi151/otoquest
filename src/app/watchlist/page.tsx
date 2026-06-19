@@ -13,6 +13,7 @@ type WatchlistItem = {
   category: string;
   name: string;
   keyword: string;
+  kakakuUrl?: string;
   currentPrice: number;
   previousPrice: number;
   currentShop: string;
@@ -208,6 +209,7 @@ export default function WatchlistPage() {
   const [popoverId, setPopoverId]     = useState<string | null>(null);
   const [popPrice, setPopPrice]       = useState("");
   const [popShop, setPopShop]         = useState("");
+  const [popUrl, setPopUrl]           = useState("");
   const [popSaving, setPopSaving]     = useState(false);
 
   // アラート編集
@@ -245,11 +247,16 @@ export default function WatchlistPage() {
     setPopSaving(true);
     try {
       const headers = await authHeader(user);
+      const body: Record<string, unknown> = {
+        currentPrice: parseInt(popPrice) || 0,
+        currentShop: popShop.trim(),
+      };
+      if (popUrl.trim()) body.kakakuUrl = popUrl.trim();
       await fetch(`/api/watchlist/${id}`, {
         method: "PUT", headers,
-        body: JSON.stringify({ currentPrice: parseInt(popPrice) || 0, currentShop: popShop.trim() }),
+        body: JSON.stringify(body),
       });
-      setPopoverId(null); setPopPrice(""); setPopShop("");
+      setPopoverId(null); setPopPrice(""); setPopShop(""); setPopUrl("");
       await load();
     } catch (e) { console.error(e); }
     setPopSaving(false);
@@ -388,7 +395,7 @@ export default function WatchlistPage() {
                       <td style={{ padding: "10px 12px" }}>
                         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                           {/* 価格.comリンク */}
-                          <a href={`https://search.kakaku.com/${encodeURIComponent(item.keyword)}/?act=Input`}
+                          <a href={item.kakakuUrl || `https://search.kakaku.com/${encodeURIComponent(item.keyword)}/?act=Input`}
                             target="_blank" rel="noopener noreferrer"
                             style={{ fontSize: 11, color: "#1e40af", textDecoration: "none", whiteSpace: "nowrap" }}>
                             🔍 価格.comで確認
@@ -400,6 +407,8 @@ export default function WatchlistPage() {
                                 placeholder="最安値（円）" style={{ ...inpSm }} />
                               <input value={popShop} onChange={(e) => setPopShop(e.target.value)}
                                 placeholder="店舗名" style={{ ...inpSm }} />
+                              <input value={popUrl} onChange={(e) => setPopUrl(e.target.value)}
+                                placeholder="価格.com URL（任意）" style={{ ...inpSm }} />
                               <div style={{ display: "flex", gap: 4 }}>
                                 <button onClick={() => submitPrice(item.id)} disabled={popSaving} style={smallBtn("#1e40af")}>
                                   {popSaving ? "…" : "更新"}
@@ -408,7 +417,7 @@ export default function WatchlistPage() {
                               </div>
                             </div>
                           ) : (
-                            <button onClick={() => { setPopoverId(item.id); setPopPrice(String(item.currentPrice || "")); setPopShop(item.currentShop); }}
+                            <button onClick={() => { setPopoverId(item.id); setPopPrice(String(item.currentPrice || "")); setPopShop(item.currentShop); setPopUrl(item.kakakuUrl ?? ""); }}
                               style={smallBtn("#7c3aed")}>
                               価格を入力
                             </button>
