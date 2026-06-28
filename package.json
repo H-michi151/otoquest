@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "eslint",
     "seed:watchlist": "GOOGLE_APPLICATION_CREDENTIALS=/home/user/デスクトップ/オトクエスト/otoquest-app-firebase-adminsdk-fbsvc-ef7e2f6916.json tsx src/scripts/seedWatchlist.ts",
-    "update:watchlist-urls": "GOOGLE_APPLICATION_CREDENTIALS=/home/user/デスクトップ/オトクエスト/otoquest-app-firebase-adminsdk-fbsvc-ef7e2f6916.json tsx src/scripts/updateWatchlistUrls.ts"
+    "update:watchlist-urls": "GOOGLE_APPLICATION_CREDENTIALS=/home/user/デスクトップ/オトクエスト/otoquest-app-firebase-adminsdk-fbsvc-ef7e2f6916.json tsx src/scripts/updateWatchlistUrls.ts",
+    "update:watchlist-items": "GOOGLE_APPLICATION_CREDENTIALS=/home/user/デスクトップ/オトクエスト/otoquest-app-firebase-adminsdk-fbsvc-ef7e2f6916.json tsx src/scripts/updateWatchlistItems.ts",
+    "update:rx9060xt-urls": "GOOGLE_APPLICATION_CREDENTIALS=/home/user/デスクトップ/オトクエスト/otoquest-app-firebase-adminsdk-fbsvc-ef7e2f6916.json tsx src/scripts/updateRx9060xtUrls.ts"
   },
   "dependencies": {
     "firebase": "^12.12.0",

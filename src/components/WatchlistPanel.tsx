@@ -47,9 +47,27 @@ export default function WatchlistPanel() {
             fetch(`/api/yahoo/search?${new URLSearchParams({ keyword: item.productName, hits: "5" })}`),
           ]);
           const [rData, yData] = await Promise.all([rRes.json(), yRes.json()]);
+
+          // excludeKeywords フィルター
+          const excludeKws: string[] = (item as unknown as { excludeKeywords?: string[] }).excludeKeywords ?? [];
+          function passesFilter(title: string): boolean {
+            if (excludeKws.length === 0) return true;
+            return !excludeKws.some((kw) =>
+              title.toLowerCase().includes(kw.toLowerCase())
+            );
+          }
+
           const prices: number[] = [];
-          if (!rData.error) (rData.results ?? []).forEach((r: { price: number }) => { if (r.price > 0) prices.push(r.price); });
-          if (!yData.error) (yData.results ?? []).forEach((r: { price: number }) => { if (r.price > 0) prices.push(r.price); });
+          if (!rData.error) {
+            (rData.results ?? []).forEach((r: { itemName: string; price: number }) => {
+              if (r.price > 0 && passesFilter(r.itemName)) prices.push(r.price);
+            });
+          }
+          if (!yData.error) {
+            (yData.results ?? []).forEach((r: { itemName: string; price: number }) => {
+              if (r.price > 0 && passesFilter(r.itemName)) prices.push(r.price);
+            });
+          }
           if (prices.length > 0) {
             await updateWatchlistCurrentPrice(user.uid, item.id, Math.min(...prices));
           }

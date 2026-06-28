@@ -11,7 +11,7 @@ import { getAuth } from "firebase-admin/auth";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { adminDb } from "@/lib/firebaseAdmin";
 
-const ADMIN_UID = process.env.NEXT_PUBLIC_ADMIN_UID ?? "";
+const ADMIN_UID = (process.env.NEXT_PUBLIC_ADMIN_UID ?? "").trim().replace(/^"|"$/g, "");
 
 // JST オフセット（+9時間をミリ秒で）
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;

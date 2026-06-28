@@ -17,34 +17,43 @@
 import { initializeApp, getApps, cert, type App } from "firebase-admin/app";
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
 
-let adminApp: App | null = null;
 let adminDb: Firestore | null = null;
 
-const projectId   = process.env.FIREBASE_ADMIN_PROJECT_ID;
-const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
-const privateKey  = process.env.FIREBASE_ADMIN_PRIVATE_KEY?.replace(/\\n/g, "\n");
+try {
+  const projectId   = process.env.FIREBASE_ADMIN_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
+  const privateKey  = process.env.FIREBASE_ADMIN_PRIVATE_KEY
+    ? process.env.FIREBASE_ADMIN_PRIVATE_KEY
+        .replace(/\\n/g, "\n")
+        .replace(/^"|"$/g, "")
+    : undefined;
 
-const isAdminConfigured = !!projectId && !!clientEmail && !!privateKey;
-
-if (isAdminConfigured) {
-  // 重複初期化を防ぐ（Next.jsのホットリロード対策）
-  if (getApps().length === 0) {
-    adminApp = initializeApp({
-      credential: cert({ projectId, clientEmail, privateKey }),
-    });
+  if (projectId && clientEmail && privateKey) {
+    let app: App;
+    if (getApps().length === 0) {
+      app = initializeApp({
+        credential: cert({ projectId, clientEmail, privateKey }),
+      });
+    } else {
+      app = getApps()[0];
+    }
+    adminDb = getFirestore(app);
   } else {
-    adminApp = getApps()[0];
+    const missing = [
+      !projectId   && "FIREBASE_ADMIN_PROJECT_ID",
+      !clientEmail && "FIREBASE_ADMIN_CLIENT_EMAIL",
+      !privateKey  && "FIREBASE_ADMIN_PRIVATE_KEY",
+    ].filter(Boolean);
+    console.warn(
+      `[firebaseAdmin] 以下の環境変数が未設定のためAdmin SDKを初期化しません: ${missing.join(", ")}`
+    );
   }
-  adminDb = getFirestore(adminApp);
-} else {
-  const missing = [
-    !projectId   && "FIREBASE_ADMIN_PROJECT_ID",
-    !clientEmail && "FIREBASE_ADMIN_CLIENT_EMAIL",
-    !privateKey  && "FIREBASE_ADMIN_PRIVATE_KEY",
-  ].filter(Boolean);
-  console.warn(
-    `[firebaseAdmin] 以下の環境変数が未設定のためAdmin SDKを初期化しません: ${missing.join(", ")}`
-  );
+} catch (e) {
+  console.error("[firebaseAdmin] Firebase Admin SDK initialization failed:", e);
+  adminDb = null;
 }
+
+// isAdminConfigured は後方互換のため残す
+const isAdminConfigured = adminDb !== null;
 
 export { adminDb, isAdminConfigured };

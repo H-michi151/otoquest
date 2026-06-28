@@ -247,18 +247,43 @@ export default function WatchlistPage() {
     setPopSaving(true);
     try {
       const headers = await authHeader(user);
-      const body: Record<string, unknown> = {
-        currentPrice: parseInt(popPrice) || 0,
-        currentShop: popShop.trim(),
-      };
-      if (popUrl.trim()) body.kakakuUrl = popUrl.trim();
-      await fetch(`/api/watchlist/${id}`, {
+      const price = parseInt(popPrice) || 0;
+      const shop  = popShop.trim();
+      const url   = popUrl.trim();
+      const body: Record<string, unknown> = { currentPrice: price, currentShop: shop };
+      if (url) body.kakakuUrl = url;
+
+      const res = await fetch(`/api/watchlist/${id}`, {
         method: "PUT", headers,
         body: JSON.stringify(body),
       });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        console.error("[submitPrice] APIエラー:", res.status, err);
+        setPopSaving(false);
+        return;
+      }
+
+      // ローカルステートを即時更新（Firestoreの反映遅延で古い値に戻らないよう load() は呼ばない）
+      const now = new Date().toISOString();
+      setItems((prev) =>
+        prev.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                previousPrice: item.currentPrice,
+                currentPrice: price,
+                currentShop: shop,
+                ...(url ? { kakakuUrl: url } : {}),
+                updatedAt: now,
+              }
+            : item
+        )
+      );
+
       setPopoverId(null); setPopPrice(""); setPopShop(""); setPopUrl("");
-      await load();
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error("[submitPrice] 例外:", e); }
     setPopSaving(false);
   };
 
