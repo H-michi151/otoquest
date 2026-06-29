@@ -271,6 +271,16 @@ export default function CardsPage() {
             💊 回復する
           </button>
         </div>
+        <div style={{ marginTop: 6, textAlign: "right" }}>
+          <a
+            href={`/history?month=${currentYearMonth()}`}
+            style={{
+              fontSize: 11, color: "#1e40af", textDecoration: "none", fontWeight: 600,
+            }}
+          >
+            📋 今月の明細を見る →
+          </a>
+        </div>
       </div>
     );
   };
