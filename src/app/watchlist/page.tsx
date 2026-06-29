@@ -218,6 +218,9 @@ export default function WatchlistPage() {
   const [alertSaving, setAlertSaving] = useState(false);
 
   // 追加モーダル
+  const [fetching, setFetching]   = useState(false);
+  const [fetchMsg, setFetchMsg]   = useState("");
+
   const [showAdd, setShowAdd]         = useState(false);
   const [addCat, setAddCat]           = useState("GPU");
   const [addName, setAddName]         = useState("");
@@ -240,6 +243,27 @@ export default function WatchlistPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const fetchAllPrices = async () => {
+    if (!user || fetching) return;
+    setFetching(true);
+    setFetchMsg("楽天・Yahoo取得中...");
+    try {
+      const headers = await authHeader(user);
+      const res = await fetch("/api/fetch-prices", { method: "POST", headers });
+      const data = await res.json() as { total?: number; updated?: number; failed?: number; error?: string };
+      if (!res.ok) {
+        setFetchMsg(`❌ エラー: ${data.error ?? res.statusText}`);
+      } else {
+        setFetchMsg(`✅ ${data.updated}件更新完了（全${data.total}件）`);
+        setTimeout(() => { load(); setFetchMsg(""); }, 1500);
+      }
+    } catch (e) {
+      setFetchMsg(`❌ 通信エラー: ${String(e)}`);
+    } finally {
+      setFetching(false);
+    }
+  };
 
   // ===== 価格更新 =====
   const submitPrice = async (id: string) => {
@@ -344,9 +368,33 @@ export default function WatchlistPage() {
           <h1 style={{ fontSize: 22, fontWeight: 900, color: "#7c3aed", marginBottom: 4 }}>👁 ウォッチリスト</h1>
           <p style={{ fontSize: 13, color: "#64748b" }}>価格.com最安値の手動管理・価格推移チャート</p>
         </div>
+        {isAdmin && fetchMsg && (
+          <div style={{
+            fontSize: 12, padding: "5px 12px", borderRadius: 6,
+            background: fetchMsg.startsWith("✅") ? "#f0fdf4" : fetchMsg.startsWith("❌") ? "#fff1f2" : "#eff6ff",
+            color: fetchMsg.startsWith("✅") ? "#065f46" : fetchMsg.startsWith("❌") ? "#9f1239" : "#1e40af",
+            border: `1px solid ${fetchMsg.startsWith("✅") ? "#86efac" : fetchMsg.startsWith("❌") ? "#fca5a5" : "#bfdbfe"}`,
+          }}>
+            {fetchMsg}
+          </div>
+        )}
+        {isAdmin && (
+          <button
+            onClick={fetchAllPrices}
+            disabled={fetching}
+            style={{
+              padding: "8px 16px", borderRadius: 8, border: "none",
+              background: fetching ? "#a78bfa" : "linear-gradient(90deg,#7c3aed,#a855f7)",
+              color: "white", fontSize: 13, fontWeight: 700,
+              cursor: fetching ? "not-allowed" : "pointer", fontFamily: "inherit",
+            }}
+          >
+            {fetching ? "⏳ 取得中..." : "🔄 価格を自動取得"}
+          </button>
+        )}
         {isAdmin && (
           <button onClick={() => setShowAdd(true)} style={{
-            marginLeft: "auto", padding: "8px 16px", borderRadius: 8, border: "none",
+            padding: "8px 16px", borderRadius: 8, border: "none",
             background: "linear-gradient(90deg,#7c3aed,#a855f7)", color: "white",
             fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
           }}>＋ 追加</button>
