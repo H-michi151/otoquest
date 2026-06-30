@@ -32,22 +32,28 @@ async function verifyAdmin(req: NextRequest): Promise<boolean> {
 
 interface SearchResult { itemName: string; shop: string; price: number; }
 
-async function fetchRakuten(keyword: string): Promise<SearchResult | null> {
+async function fetchRakuten(keyword: string, excludes: string[] = []): Promise<SearchResult | null> {
   try {
     const res = await fetch(`${APP_URL}/api/rakuten/search?${new URLSearchParams({ keyword, hits: "30" })}`);
     if (!res.ok) return null;
     const data = await res.json() as { results?: SearchResult[] };
-    const items = (data.results ?? []).filter((r) => r.price > 0);
+    let items = (data.results ?? []).filter((r) => r.price > 0);
+    if (excludes.length) {
+      items = items.filter((r) => !excludes.some((ex) => r.itemName.toLowerCase().includes(ex)));
+    }
     return items.length ? items.reduce((min, r) => r.price < min.price ? r : min) : null;
   } catch { return null; }
 }
 
-async function fetchYahoo(keyword: string): Promise<SearchResult | null> {
+async function fetchYahoo(keyword: string, excludes: string[] = []): Promise<SearchResult | null> {
   try {
     const res = await fetch(`${APP_URL}/api/yahoo/search?${new URLSearchParams({ keyword, hits: "30" })}`);
     if (!res.ok) return null;
     const data = await res.json() as { results?: SearchResult[] };
-    const items = (data.results ?? []).filter((r) => r.price > 0);
+    let items = (data.results ?? []).filter((r) => r.price > 0);
+    if (excludes.length) {
+      items = items.filter((r) => !excludes.some((ex) => r.itemName.toLowerCase().includes(ex)));
+    }
     return items.length ? items.reduce((min, r) => r.price < min.price ? r : min) : null;
   } catch { return null; }
 }
@@ -59,14 +65,15 @@ export async function POST(req: NextRequest) {
   try {
     const snap = await adminDb.collection("watchlist_items").get();
     const items = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<{
-      id: string; keyword: string; currentPrice: number;
+      id: string; searchKeyword: string; excludeKeywords?: string[]; currentPrice: number;
       priceHistory: Array<{ date: string; price: number; shop: string }>;
     }>;
 
     const results = await Promise.allSettled(
       items.map(async (item) => {
-        if (!item.keyword) return { id: item.id, status: "skipped" };
-        const [rakuten, yahoo] = await Promise.all([fetchRakuten(item.keyword), fetchYahoo(item.keyword)]);
+        if (!item.searchKeyword) return { id: item.id, status: "skipped" };
+        const excludes = (item.excludeKeywords ?? []).map((k) => k.toLowerCase());
+        const [rakuten, yahoo] = await Promise.all([fetchRakuten(item.searchKeyword, excludes), fetchYahoo(item.searchKeyword, excludes)]);
         const candidates = [rakuten, yahoo].filter(Boolean) as SearchResult[];
         if (!candidates.length) return { id: item.id, status: "no_result" };
         const best = candidates.reduce((min, r) => r.price < min.price ? r : min);
