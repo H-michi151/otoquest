@@ -32,15 +32,31 @@ async function verifyAdmin(req: NextRequest): Promise<boolean> {
 
 interface SearchResult { itemName: string; shop: string; price: number; }
 
+/**
+ * 商品名に検索キーワードの全単語が含まれているかでフィルタリング（AND一致）。
+ * excludeWords が商品名に含まれる場合は除外。
+ */
+function filterByTokenMatch(items: SearchResult[], keyword: string, excludes: string[]): SearchResult[] {
+  const tokens = keyword
+    .toLowerCase()
+    .split(/[\s（）()×x,、]+/)
+    .filter((t) => t.length > 0);
+
+  return items.filter((item) => {
+    const name = item.itemName.toLowerCase();
+    const allTokensMatch = tokens.every((t) => name.includes(t));
+    const hasExcluded = excludes.some((ex) => name.includes(ex.toLowerCase()));
+    return allTokensMatch && !hasExcluded;
+  });
+}
+
 async function fetchRakuten(keyword: string, excludes: string[] = []): Promise<SearchResult | null> {
   try {
     const res = await fetch(`${APP_URL}/api/rakuten/search?${new URLSearchParams({ keyword, hits: "30" })}`);
     if (!res.ok) return null;
     const data = await res.json() as { results?: SearchResult[] };
     let items = (data.results ?? []).filter((r) => r.price > 0);
-    if (excludes.length) {
-      items = items.filter((r) => !excludes.some((ex) => r.itemName.toLowerCase().includes(ex)));
-    }
+    items = filterByTokenMatch(items, keyword, excludes);
     return items.length ? items.reduce((min, r) => r.price < min.price ? r : min) : null;
   } catch { return null; }
 }
@@ -51,9 +67,7 @@ async function fetchYahoo(keyword: string, excludes: string[] = []): Promise<Sea
     if (!res.ok) return null;
     const data = await res.json() as { results?: SearchResult[] };
     let items = (data.results ?? []).filter((r) => r.price > 0);
-    if (excludes.length) {
-      items = items.filter((r) => !excludes.some((ex) => r.itemName.toLowerCase().includes(ex)));
-    }
+    items = filterByTokenMatch(items, keyword, excludes);
     return items.length ? items.reduce((min, r) => r.price < min.price ? r : min) : null;
   } catch { return null; }
 }
@@ -65,15 +79,16 @@ export async function POST(req: NextRequest) {
   try {
     const snap = await adminDb.collection("watchlist_items").get();
     const items = snap.docs.map((d) => ({ id: d.id, ...d.data() })) as Array<{
-      id: string; searchKeyword: string; excludeKeywords?: string[]; currentPrice: number;
+      id: string; searchKeyword?: string; keyword?: string; excludeKeywords?: string[]; currentPrice: number;
       priceHistory: Array<{ date: string; price: number; shop: string }>;
     }>;
 
     const results = await Promise.allSettled(
       items.map(async (item) => {
-        if (!item.searchKeyword) return { id: item.id, status: "skipped" };
+        const kw = item.searchKeyword || item.keyword;
+        if (!kw) return { id: item.id, status: "skipped" };
         const excludes = (item.excludeKeywords ?? []).map((k) => k.toLowerCase());
-        const [rakuten, yahoo] = await Promise.all([fetchRakuten(item.searchKeyword, excludes), fetchYahoo(item.searchKeyword, excludes)]);
+        const [rakuten, yahoo] = await Promise.all([fetchRakuten(kw, excludes), fetchYahoo(kw, excludes)]);
         const candidates = [rakuten, yahoo].filter(Boolean) as SearchResult[];
         if (!candidates.length) return { id: item.id, status: "no_result" };
         const best = candidates.reduce((min, r) => r.price < min.price ? r : min);
